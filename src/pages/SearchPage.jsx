@@ -1,0 +1,151 @@
+import { useRef, useState } from 'react'
+import { postJson } from '../lib/api.js'
+import DemoBadge from '../components/DemoBadge.jsx'
+import { UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import GenProgress from '../components/GenProgress.jsx'
+
+const GEN_STEPS = [
+  '질문과 지식 문서를 임베딩 벡터로 변환하고 있어요',
+  '코사인 유사도로 근거 문서를 찾고 있어요',
+  '근거 문단만 사용해 답변을 작성하고 있어요',
+]
+
+const SAMPLE_QUESTIONS = [
+  '이사 가는 고객이 해지하면 위약금을 꼭 내야 하나요?',
+  '고객이 해외 안 갔는데 로밍 요금이 나왔다고 합니다. 어떻게 처리하죠?',
+  '가족 회선을 결합에 추가하려면 뭐가 필요한가요?',
+  '미성년자가 결제한 소액결제 환불이 되나요?',
+]
+
+export default function SearchPage() {
+  const [question, setQuestion] = useState(SAMPLE_QUESTIONS[0])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState(null)
+  const resultRef = useRef(null)
+
+  async function search(e) {
+    e.preventDefault()
+    if (!question.trim()) {
+      setError('질문을 입력해주세요.')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const data = await postJson('/api/cc/search', { question })
+      setResult(data)
+      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const maxScore = result ? Math.max(...result.results.map((r) => r.score), 0.001) : 1
+
+  return (
+    <div className="tool-page">
+      <header className="tool-header">
+        <span className="tool-tag">담당업무 ④ RAG · 검색 증강 생성</span>
+        <h1>RAG 상담 지식 검색</h1>
+        <p>
+          상담사가 통화 중 규정을 물으면, 질문을 <strong>bge-m3 임베딩</strong>으로 벡터화해 지식
+          문서 8건과 <strong>코사인 유사도</strong>로 대조하고, LLM이{' '}
+          <strong>검색된 근거 문단만 사용해</strong> 답합니다. 문서에 없으면 "없다"고 답하는 것이
+          원칙입니다 — 환각을 구조로 막는 RAG 설계입니다.
+        </p>
+      </header>
+
+      <div className="tool-layout">
+        <form className="tool-form" onSubmit={search}>
+          <label>
+            상담사 질문
+            <textarea value={question} onChange={(e) => setQuestion(e.target.value)} rows={3} />
+          </label>
+          <div className="batch-meta search-samples">
+            {SAMPLE_QUESTIONS.map((q) => (
+              <button key={q} type="button" className="preset-chip" onClick={() => setQuestion(q)}>
+                {q.length > 24 ? q.slice(0, 24) + '…' : q}
+              </button>
+            ))}
+          </div>
+          <button type="submit" className="btn-primary" disabled={loading}>
+            {loading ? '검색 중... (5~20초)' : '지식 검색하기'}
+          </button>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <p className="result-empty-sub">
+            지식 문서는 가상 통신사 "한빛텔레콤"의 상담 규정 8건입니다 (자작 데이터).
+          </p>
+        </form>
+
+        <div className="tool-result" ref={resultRef}>
+          {!result && !loading && (
+            <div className="result-empty">
+              <p>질문을 검색하면 근거 문서와 함께 답변이 표시됩니다.</p>
+              <p className="result-empty-sub">
+                어떤 문서를 근거로 답했는지(인용 id)까지 투명하게 보여줍니다.
+              </p>
+            </div>
+          )}
+          {loading && <GenProgress steps={GEN_STEPS} />}
+          {result && !loading && (
+            <>
+              <ResultNotice text={result.notice} />
+              <div className="result-toolbar">
+                {result.demo && <DemoBadge />}
+                <UsageNote usage={result.usage} />
+                <span className="usage-note">
+                  검색:{' '}
+                  {result.mode === 'vector'
+                    ? `${result.embed_model} 임베딩 · 코사인 유사도`
+                    : '키워드 랭킹 (임베딩 폴백)'}
+                </span>
+              </div>
+
+              <div className="highlight-box rag-answer">
+                <strong>답변</strong>
+                <p>{result.answer}</p>
+                {result.cited_ids?.length > 0 && (
+                  <p className="result-empty-sub">
+                    인용 문서: {result.cited_ids.map((id) => `[${id}]`).join(' ')}
+                  </p>
+                )}
+              </div>
+
+              <section className="analysis-block">
+                <h2>근거 문서 (유사도 상위 {result.results.length}건)</h2>
+                <div className="rank-bars">
+                  {result.results.map((r) => (
+                    <div className="rank-row" key={r.id}>
+                      <span className="rank-label">
+                        {result.cited_ids?.includes(r.id) ? '📎 ' : ''}
+                        [{r.id}] {r.title}
+                      </span>
+                      <span className="rank-track">
+                        <span
+                          className="rank-fill"
+                          style={{ width: `${Math.max(6, (r.score / maxScore) * 100)}%` }}
+                        />
+                      </span>
+                      <span className="rank-value">{r.score.toFixed(3)}</span>
+                    </div>
+                  ))}
+                </div>
+                {result.results.map((r) => (
+                  <details className="faq-doc" key={r.id}>
+                    <summary>
+                      [{r.id}] {r.title}
+                    </summary>
+                    <p>{r.body}</p>
+                  </details>
+                ))}
+              </section>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

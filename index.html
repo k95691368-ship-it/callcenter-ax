@@ -1,69 +1,22 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>포트폴리오 — 7월 27일</title>
-<style>
-  :root {
-    --bg: #0f1115;
-    --surface: #171a21;
-    --text: #e8eaf0;
-    --muted: #9aa1b0;
-    --accent: #5b8cff;
-    --border: #262b36;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-  }
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 48px 40px;
-    max-width: 560px;
-    width: 100%;
-    text-align: center;
-  }
-  .badge {
-    display: inline-block;
-    font-size: 13px;
-    color: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: 999px;
-    padding: 4px 14px;
-    margin-bottom: 20px;
-  }
-  h1 { font-size: 28px; margin-bottom: 12px; }
-  p { color: var(--muted); line-height: 1.7; }
-  .status {
-    margin-top: 28px;
-    font-size: 14px;
-    color: var(--muted);
-  }
-  .dot {
-    display: inline-block;
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: #3ecf8e;
-    margin-right: 6px;
-  }
-</style>
-</head>
-<body>
-  <main class="card">
-    <span class="badge">2026.07.27 시작</span>
-    <h1>새 포트폴리오 프로젝트</h1>
-    <p>이 페이지는 초기 배포 확인용입니다.<br>여기에 프로젝트 기능들이 하나씩 추가됩니다.</p>
-    <div class="status"><span class="dot"></span>Cloudflare Pages 배포 정상</div>
-  </main>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="녹취 전사(Whisper STT), 통화 분류·요약·감정 분석, 상담 품질 자동 평가(Auto QA), VOC 대시보드, RAG 지식 검색 — 콜센터 AI 파이프라인을 그대로 구현한 라이브 포트폴리오" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="콜센터 AX 워크벤치 — STT·LLM·RAG·Auto QA 포트폴리오" />
+    <meta property="og:description" content="녹취 → STT → 분석 → Auto QA → VOC → RAG 검색. 콜센터 AI 서비스 파이프라인을 채용공고 담당업무 그대로 구현한 라이브 포트폴리오." />
+    <meta property="og:url" content="https://callcenter-ax.pages.dev/" />
+    <meta property="og:locale" content="ko_KR" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="콜센터 AX 워크벤치 — STT·LLM·RAG·Auto QA 포트폴리오" />
+    <meta name="twitter:description" content="녹취 전사, 통화 분석, 상담 품질 자동 평가, VOC 대시보드, RAG 검색 — 실제로 동작하는 콜센터 AI 포트폴리오." />
+    <title>콜센터 AX 워크벤치 — STT·LLM·RAG·Auto QA 포트폴리오</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

@@ -1,0 +1,14 @@
+# Cloudflare Pages 설정 — 배포 시 이 파일의 바인딩이 프로젝트에 적용된다.
+name = "callcenter-ax"
+compatibility_date = "2026-07-01"
+pages_build_output_dir = "dist"
+
+# Workers AI — Whisper(STT), bge-m3(임베딩). 별도 API 키 없이 바인딩만으로 사용.
+[ai]
+binding = "AI"
+
+# D1 — 레이트리밋 + AI 호출 텔레메트리 (개인정보 미저장)
+[[d1_databases]]
+binding = "DB"
+database_name = "callcenter-ax"
+database_id = "1d0484d2-397e-4301-9162-cbfe21d50f32"
