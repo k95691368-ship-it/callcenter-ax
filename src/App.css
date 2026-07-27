@@ -2548,3 +2548,11 @@
 .cer-compare {
   margin-top: 12px;
 }
+
+.sample-demo-btn {
+  width: 100%;
+  margin-bottom: 12px;
+  border-color: var(--orange-500);
+  color: var(--orange-600);
+  font-weight: 700;
+}

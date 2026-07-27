@@ -107,17 +107,16 @@ export default function SttPage() {
     return computeCer(refScript, altResult.text)
   }, [refScript, altResult])
 
-  async function transcribe(e) {
-    e.preventDefault()
-    if (!file) {
+  async function runTranscribe(theFile, withCompare) {
+    if (!theFile) {
       setError('음성 파일을 선택하거나 마이크로 녹음해주세요.')
       return
     }
-    if (file.size > MAX_FILE_BYTES) {
+    if (theFile.size > MAX_FILE_BYTES) {
       setError('파일이 너무 큽니다. 6MB 이하의 음성 파일을 올려주세요.')
       return
     }
-    if (compare && file.size > MAX_COMPARE_BYTES) {
+    if (withCompare && theFile.size > MAX_COMPARE_BYTES) {
       setError('모델 비교는 2MB 이하의 짧은 음성으로만 가능합니다. 비교를 끄거나 짧게 녹음해주세요.')
       return
     }
@@ -125,14 +124,14 @@ export default function SttPage() {
     setError('')
     setAltResult(null)
     try {
-      const audio_b64 = await fileToBase64(file)
-      const data = await postJson('/api/cc/stt', { audio_b64, content_type: file.type })
+      const audio_b64 = await fileToBase64(theFile)
+      const data = await postJson('/api/cc/stt', { audio_b64, content_type: theFile.type })
       setResult(data)
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-      if (compare) {
+      if (withCompare) {
         // 같은 음성을 base whisper로도 전사해 CER을 비교한다 (성능 평가 시연)
         try {
-          const alt = await postJson('/api/cc/stt', { audio_b64, content_type: file.type, model: 'base' })
+          const alt = await postJson('/api/cc/stt', { audio_b64, content_type: theFile.type, model: 'base' })
           setAltResult(alt)
         } catch (altErr) {
           setAltResult({ failed: true, notice: `비교 모델 전사 실패: ${altErr.message}` })
@@ -142,6 +141,26 @@ export default function SttPage() {
       setError(err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  function transcribe(e) {
+    e.preventDefault()
+    runTranscribe(file, compare)
+  }
+
+  // 내장 샘플 음성(합성 목소리) 원클릭 시연 — 정답 스크립트까지 채워 CER이 바로 계산된다
+  const SAMPLE_SCRIPT = '안녕하세요. 한빛텔레콤 상담사입니다. 상담 품질 향상을 위해 통화 내용이 녹음됩니다.'
+  async function runSampleDemo() {
+    try {
+      const res = await fetch('/sample-call.wav')
+      const blob = await res.blob()
+      const f = new File([blob], '내장 샘플 음성.wav', { type: 'audio/wav' })
+      setFile(f)
+      setRefScript(SAMPLE_SCRIPT)
+      runTranscribe(f, true)
+    } catch {
+      setError('샘플 음성을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.')
     }
   }
 
@@ -193,7 +212,11 @@ export default function SttPage() {
         {tab === 'file' ? (
           <form className="tool-form" onSubmit={transcribe}>
             <div className="mic-box">
-              <p className="mic-title">지금 바로 마이크로 시연</p>
+              <p className="mic-title">가장 빠른 시연 — 클릭 한 번</p>
+              <button type="button" className="btn-ghost sample-demo-btn" onClick={runSampleDemo} disabled={loading || recorder.recording}>
+                ▶ 내장 샘플 음성으로 2종 모델 전사 + CER 비교
+              </button>
+              <p className="mic-title">또는 지금 바로 마이크로 시연</p>
               {!recorder.recording ? (
                 <button type="button" className="btn-primary mic-btn" onClick={recorder.start} disabled={loading}>
                   ● 녹음 시작
