@@ -5,25 +5,32 @@
 }
 
 :root {
-  /* ㈜포오스 홈페이지(pos21.co.kr) UI 오마주 — 딥 네이비 기업 톤 + 오렌지 로고 포인트 */
-  --blue-600: #1d3a6b;
-  --blue-500: #2c5aa8;
-  --blue-050: #edf2fa;
-  --navy-900: #14264a;
-  --navy-800: #1b3159;
-  --orange-600: #e87f2f;
-  --orange-500: #f1954a;
-  --orange-050: #fdf1e6;
-  --ink-900: #101318;
-  --ink-600: #4e545e;
-  --ink-400: #868d99;
-  --line: #dde1e8;
-  --surface: #fdfdfe;
-  --page: #f6f8fb;
-  --green-700: #14532d;
-  --red-600: #d03b3b;
-  --amber-600: #b45309;
-  font-family: 'Pretendard', 'Pretendard Variable', system-ui, -apple-system, 'Segoe UI', 'Malgun Gothic', sans-serif;
+  /* 토스 디자인 시스템 문법의 팔레트 — 흰 배경, 회색 필 카드, 단일 블루 포인트 */
+  --blue-600: #3182f6;
+  --blue-700: #1b64da;
+  --blue-500: #4593fc;
+  --blue-050: #e8f3ff;
+  --ink-900: #191f28;
+  --ink-700: #333d4b;
+  --ink-600: #4e5968;
+  --ink-500: #6b7684;
+  --ink-400: #8b95a1;
+  --line: #e5e8eb;
+  --fill-100: #f2f4f6;
+  --fill-050: #f9fafb;
+  --surface: #ffffff;
+  --page: #ffffff;
+  --green-600: #1b8a4c;
+  --green-050: #e6f6ec;
+  --red-600: #d22d2d;
+  --red-050: #fdecec;
+  --amber-600: #b25e09;
+  --amber-050: #fff3d6;
+  --purple-600: #6b4ee6;
+  --purple-050: #f1ecfe;
+  --shadow-card: 0 1px 2px rgba(25, 31, 40, 0.04);
+  --shadow-lift: 0 12px 28px rgba(25, 31, 40, 0.1);
+  font-family: 'Pretendard Variable', 'Pretendard', system-ui, -apple-system, 'Segoe UI', 'Malgun Gothic', sans-serif;
   color: var(--ink-900);
   background: var(--page);
   line-height: 1.6;
@@ -38,9 +45,10 @@ body {
 h1,
 h2,
 h3 {
-  line-height: 1.3;
+  line-height: 1.25;
   margin: 0 0 0.5em;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 p {

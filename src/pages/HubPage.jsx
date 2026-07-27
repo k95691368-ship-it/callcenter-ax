@@ -56,7 +56,7 @@ export default function HubPage() {
         <h1>
           녹취에서 인사이트까지,
           <br />
-          콜센터 AX 워크벤치
+          <span className="accent">콜센터 AX 워크벤치</span>
         </h1>
         <p className="hub-sub">
           "STT, LLM, NLP, RAG 기술을 활용한 콜센터 AI 서비스" — 채용공고의 담당업무 문장을

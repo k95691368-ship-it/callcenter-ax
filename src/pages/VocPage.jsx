@@ -4,7 +4,7 @@ import { SAMPLE_CALLS, CATEGORIES, SENTIMENTS } from '../lib/sampleCalls.js'
 import { loadMyCalls, clearMyCalls } from '../lib/myCalls.js'
 
 // 감정 축은 순서형(긍정→강성)이므로 단일 색조의 순차 램프로 칠한다 (무지개 금지)
-const SENTIMENT_RAMP = { 긍정: '#b9c9e6', 중립: '#8fa9d6', 부정: '#4f6fa8', 강성: '#1d3a6b' }
+const SENTIMENT_RAMP = { 긍정: '#cfe1fc', 중립: '#8fbafa', 부정: '#4593fc', 강성: '#1b64da' }
 
 const CATEGORY_BADGE = {
   가입: 'cat-praise',
