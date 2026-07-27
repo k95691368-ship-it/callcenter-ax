@@ -2497,3 +2497,54 @@
 .search-samples {
   flex-wrap: wrap;
 }
+
+/* 마이크 녹음 · 모델 비교 */
+.mic-box {
+  border: 1px dashed var(--orange-500);
+  background: var(--orange-050);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 4px;
+}
+
+.mic-title {
+  font-weight: 700;
+  font-size: 13.5px;
+  margin-bottom: 8px;
+}
+
+.mic-btn {
+  width: 100%;
+}
+
+.mic-live {
+  background: var(--red-600);
+  border-color: var(--red-600);
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  50% { opacity: 0.75; }
+}
+
+.compare-check {
+  font-size: 13px;
+  color: var(--ink-600);
+}
+
+.stt-alt {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--page);
+}
+
+.stt-alt-text {
+  font-size: 13.5px;
+  color: var(--ink-600);
+  margin: 6px 0 0;
+}
+
+.cer-compare {
+  margin-top: 12px;
+}

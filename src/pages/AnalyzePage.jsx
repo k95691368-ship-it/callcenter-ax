@@ -5,6 +5,7 @@ import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
+import { saveMyCall } from '../lib/myCalls.js'
 
 const GEN_STEPS = [
   '통화 내용을 읽고 문의 유형을 분류하고 있어요',
@@ -62,6 +63,13 @@ export default function AnalyzePage() {
     try {
       const data = await postJson('/api/cc/analyze', { transcript: text })
       setResult(data)
+      // 분석 결과를 브라우저에 누적 → VOC 대시보드에 합산 (서버 저장 없음)
+      saveMyCall({
+        title: text.replace(/^(상담사|고객)\s*[:：]\s*/, '').split('\n')[0],
+        category: data.category,
+        sentiment: data.sentiment,
+        escalate: data.escalate,
+      })
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
       setError(err.message)
