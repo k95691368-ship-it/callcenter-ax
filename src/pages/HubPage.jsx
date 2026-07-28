@@ -63,11 +63,11 @@ export default function HubPage() {
           다섯 개의 동작하는 화면으로 구현했습니다. 녹취 회사의 제품 파이프라인 순서 그대로입니다.
         </p>
         <div className="hub-cta">
-          <Link to="/analyze" className="btn-primary">
-            강성 민원 통화를 30초 만에 분석해 보세요
+          <Link to="/pipeline" className="btn-primary">
+            ▶ 전체 파이프라인 원클릭 실행
           </Link>
-          <Link to="/qa" className="btn-ghost">
-            Auto QA 점수표 바로 보기
+          <Link to="/analyze" className="btn-ghost">
+            강성 민원 통화 분석해 보기
           </Link>
         </div>
       </section>

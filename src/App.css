@@ -1486,3 +1486,120 @@
   font-weight: 700;
   font-size: 12px;
 }
+
+/* ===== 도메인 보정 (STT 튜닝 1단계) ===== */
+.lexicon-box {
+  background: var(--blue-050);
+  border-radius: 16px;
+  padding: 16px 18px;
+  margin-top: 12px;
+}
+
+.lexicon-box h3 {
+  font-size: 14.5px;
+  margin-bottom: 4px;
+}
+
+.lexicon-text {
+  background: #fff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  color: var(--ink-700);
+  margin: 8px 0 10px;
+}
+
+/* ===== 원클릭 파이프라인 ===== */
+.pipe-run {
+  margin-bottom: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 480px;
+}
+
+.pipe-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pipe-step {
+  background: var(--fill-050);
+  border-radius: 20px;
+  padding: 18px 20px;
+  opacity: 0.55;
+  transition: opacity 0.3s ease, box-shadow 0.3s ease;
+}
+
+.pipe-step.now {
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--blue-600) inset;
+}
+
+.pipe-step.done {
+  opacity: 1;
+}
+
+.pipe-step-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.pipe-step-head strong {
+  display: block;
+  font-size: 15.5px;
+}
+
+.pipe-step-desc {
+  font-size: 12.5px;
+  color: var(--ink-400);
+}
+
+.pipe-step-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--fill-100);
+  color: var(--ink-500);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.pipe-step.done .pipe-step-mark {
+  background: var(--green-050);
+  color: var(--green-600);
+}
+
+.pipe-step.now .pipe-step-mark {
+  background: var(--blue-600);
+  color: #fff;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+.pipe-result {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pipe-text {
+  background: #fff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  color: var(--ink-700);
+  margin: 0;
+  box-shadow: var(--shadow-card);
+}

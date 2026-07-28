@@ -5,6 +5,7 @@ import DemoBadge from '../components/DemoBadge.jsx'
 import { WorkersAiNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 import { computeCer } from '../lib/cer.js'
+import { applyLexicon } from '../lib/domainLexicon.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 
 const GEN_STEPS = [
@@ -106,6 +107,13 @@ export default function SttPage() {
     if (!refScript.trim() || !altResult?.text) return null
     return computeCer(refScript, altResult.text)
   }, [refScript, altResult])
+
+  // 도메인 용어 보정(튜닝 1단계) — 보정이 일어난 경우에만 전/후 CER을 비교한다
+  const corrected = useMemo(() => applyLexicon(transcript), [transcript])
+  const correctedCer = useMemo(() => {
+    if (!refScript.trim() || corrected.applied.length === 0) return null
+    return computeCer(refScript, corrected.text)
+  }, [refScript, corrected])
 
   async function runTranscribe(theFile, withCompare) {
     if (!theFile) {
@@ -350,6 +358,41 @@ export default function SttPage() {
                       {cer.distance} / {cer.refLength}자
                     </span>
                   </div>
+                </div>
+              )}
+              {corrected.applied.length > 0 && (
+                <div className="lexicon-box">
+                  <h3>도메인 용어 보정 — 튜닝 1단계</h3>
+                  <p className="result-empty-sub">
+                    콜센터 도메인 사전으로 전사 오류를 후보정했습니다 (모델 재학습 없는 경량
+                    도메인 최적화).
+                  </p>
+                  <div className="chip-row">
+                    {corrected.applied.map((a) => (
+                      <span className="chip" key={a.term}>
+                        → {a.term} ×{a.count}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="lexicon-text">{corrected.text}</p>
+                  {cer && correctedCer && (
+                    <div className="stat-row">
+                      <div className="stat-tile">
+                        <span className="stat-label">보정 전 CER</span>
+                        <span className="stat-value">{(cer.cer * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="stat-tile">
+                        <span className="stat-label">보정 후 CER</span>
+                        <span className="stat-value">{(correctedCer.cer * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="stat-tile">
+                        <span className="stat-label">개선 폭</span>
+                        <span className="stat-value">
+                          {cer.cer > 0 ? `-${(((cer.cer - correctedCer.cer) / cer.cer) * 100).toFixed(0)}%` : '—'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               {cer && altCer && altResult && !altResult.failed && (

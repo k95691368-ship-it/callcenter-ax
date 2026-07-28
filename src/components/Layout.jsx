@@ -3,6 +3,7 @@ import ErrorBoundary from './ErrorBoundary.jsx'
 
 const MENU = [
   { to: '/', label: '홈', end: true },
+  { to: '/pipeline', label: '파이프라인' },
   { to: '/stt', label: '녹취 전사' },
   { to: '/analyze', label: '통화 분석' },
   { to: '/qa', label: 'Auto QA' },

@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout.jsx'
 import HubPage from './pages/HubPage.jsx'
 
+const PipelinePage = lazy(() => import('./pages/PipelinePage.jsx'))
 const SttPage = lazy(() => import('./pages/SttPage.jsx'))
 const AnalyzePage = lazy(() => import('./pages/AnalyzePage.jsx'))
 const QaPage = lazy(() => import('./pages/QaPage.jsx'))
@@ -19,6 +20,7 @@ function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<HubPage />} />
+        <Route path="/pipeline" element={lazyRoute(<PipelinePage />)} />
         <Route path="/stt" element={lazyRoute(<SttPage />)} />
         <Route path="/analyze" element={lazyRoute(<AnalyzePage />)} />
         <Route path="/qa" element={lazyRoute(<QaPage />)} />

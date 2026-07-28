@@ -8,10 +8,16 @@ const DUTY_MAP = [
     label: '홈',
   },
   {
-    duty: 'Whisper 등 오픈소스 STT/ASR 모델의 성능 평가 및 서비스 적용',
-    impl: 'Whisper large-v3-turbo 서버리스 전사 + 정답 스크립트 대비 CER(문자 오류율) 측정기',
+    duty: 'Whisper 등 오픈소스 STT/ASR 모델의 성능 평가, 도메인 튜닝 및 서비스 적용',
+    impl: 'Whisper 2종 전사·CER 측정 + 콜센터 용어 사전 후보정(도메인 튜닝 1단계)으로 보정 전/후 CER 개선 정량 표시',
     to: '/stt',
     label: '녹취 전사',
+  },
+  {
+    duty: '콜센터 도메인에 특화된 AI 처리 파이프라인 설계',
+    impl: '원클릭 파이프라인 — 음성→STT→도메인 보정→분석→QA→VOC가 실제 API로 연속 실행',
+    to: '/pipeline',
+    label: '파이프라인',
   },
   {
     duty: '콜센터 녹취·STT 데이터 기반 분류, 요약, VOC·의도 분석',
@@ -44,6 +50,7 @@ const PREFER_MAP = [
 const LIVE_TABLE = [
   { feature: '녹취 전사 (Whisper STT)', mode: '라이브', how: 'Workers AI 바인딩 — API 키 없이 실제 전사' },
   { feature: 'STT 성능 평가 (CER)', mode: '항상 실제 계산', how: '브라우저에서 Levenshtein 거리 계산 (순수 함수)' },
+  { feature: 'STT 도메인 보정 (튜닝 1단계)', mode: '항상 실제 계산', how: '콜센터 용어 사전 후보정 + 보정 전/후 CER 비교' },
   { feature: 'RAG 검색 (임베딩·유사도)', mode: '라이브', how: 'bge-m3 임베딩 + 코사인 유사도, 실패 시 키워드 랭킹 폴백' },
   { feature: 'QA 규칙 스캔 (멘트·금지 표현)', mode: '항상 실제 계산', how: '결정적 규칙 엔진 — 데모 모드에서도 진짜로 동작' },
   { feature: 'VOC 대시보드', mode: '항상 실제 계산', how: '내장 10건 + 직접 분석한 통화를 브라우저에 누적 집계 (서버 미전송)' },
