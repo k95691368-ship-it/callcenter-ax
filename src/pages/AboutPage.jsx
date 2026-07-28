@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 const DUTY_MAP = [
@@ -58,6 +59,15 @@ const LIVE_TABLE = [
 ]
 
 export default function AboutPage() {
+  // 실시간 인프라 상태 — /api/cc/health가 바인딩·키 상태를 반환한다
+  const [health, setHealth] = useState(null)
+  useEffect(() => {
+    fetch('/api/cc/health')
+      .then((r) => r.json())
+      .then(setHealth)
+      .catch(() => {})
+  }, [])
+
   return (
     <div className="tool-page about-page">
       <header className="tool-header">
@@ -162,6 +172,18 @@ export default function AboutPage() {
 
       <section className="about-section">
         <h2>4. 무엇이 라이브이고 무엇이 데모인가 (정직한 구분)</h2>
+        {health && (
+          <div className="chip-row" aria-label="실시간 인프라 상태">
+            <span className={`cat-badge ${health.workers_ai ? 'cat-praise' : 'cat-quality'}`}>
+              {health.workers_ai ? '● Workers AI 정상' : '○ Workers AI 미연결'}
+            </span>
+            <span className={`cat-badge ${health.d1 ? 'cat-praise' : 'cat-quality'}`}>
+              {health.d1 ? '● D1 정상' : '○ D1 미연결'}
+            </span>
+            <span className="cat-badge cat-ship">현재 LLM 엔진: {health.llm_engine}</span>
+            <span className="usage-note">지금 이 순간의 실제 상태 (/api/cc/health)</span>
+          </div>
+        )}
         <div className="req-table-wrap">
           <table className="req-table">
             <thead>
