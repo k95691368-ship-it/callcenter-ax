@@ -59,3 +59,27 @@ describe('runLlmLadder', () => {
     await expect(runLlmLadder({}, OPTS)).rejects.toThrow(/사용 가능한 AI 엔진/)
   })
 })
+
+describe('Claude 일일 예산 칸막이', () => {
+  // 카운트가 상한을 넘긴 상태를 흉내내는 D1 스텁 — Claude를 건너뛰고 오픈소스로 가야 한다
+  const fullBucketDb = {
+    prepare: () => ({
+      bind: () => ({ run: async () => ({}), first: async () => ({ count: 999 }) }),
+      run: async () => ({}),
+      first: async () => ({ count: 999 }),
+    }),
+  }
+
+  it('예산 소진 시 Claude API를 호출하지 않고 오픈소스가 답한다', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    const r = await runLlmLadder({ CLAUDE_API_KEY: 'k', AI: workersOk, DB: fullBucketDb }, OPTS)
+    expect(r.engine).toBe('oss')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('예산 소진 + 오픈소스도 없으면 예산 안내 오류를 던진다', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    await expect(runLlmLadder({ CLAUDE_API_KEY: 'k', DB: fullBucketDb }, OPTS)).rejects.toThrow(/예산/)
+  })
+})

@@ -32,7 +32,10 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 8192
         model: MODEL,
         max_tokens: maxTokens,
         output_config: { effort: 'medium' },
-        system,
+        // 시스템 프롬프트에 캐시 브레이크포인트 — tools+system 접두사가 5분간 캐시되어
+        // 반복 호출(파이프라인·연속 시연)의 입력 비용과 지연을 줄인다.
+        // 접두사가 최소 캐시 토큰(1024)에 못 미치면 조용히 무시되므로 손해가 없다.
+        system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: user }],
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -70,7 +73,13 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 8192
     throw new Error('AI 응답에서 결과를 찾을 수 없습니다. 잠시 후 다시 시도해주세요.')
   }
   const usage = data.usage
-    ? { input_tokens: data.usage.input_tokens, output_tokens: data.usage.output_tokens }
+    ? {
+        input_tokens: data.usage.input_tokens,
+        output_tokens: data.usage.output_tokens,
+        ...(data.usage.cache_read_input_tokens
+          ? { cache_read_input_tokens: data.usage.cache_read_input_tokens }
+          : {}),
+      }
     : null
   return { input: toolUse.input, usage }
 }
