@@ -5,7 +5,7 @@ import DemoBadge from '../components/DemoBadge.jsx'
 import { WorkersAiNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 import { computeCer } from '../lib/cer.js'
-import { applyLexicon } from '../lib/domainLexicon.js'
+import { applyLexicon, buildCustomLexicon, MAX_CUSTOM_TERMS } from '../lib/domainLexicon.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { useRecorder } from '../lib/useRecorder.js'
 
@@ -78,8 +78,19 @@ export default function SttPage() {
     return computeCer(refScript, altResult.text)
   }, [refScript, altResult])
 
+  // 우리 콜센터만의 오전사→정정 쌍 — 심사자가 도메인 튜닝을 직접 실험할 수 있다
+  const [customTerms, setCustomTerms] = useState(
+    Array.from({ length: MAX_CUSTOM_TERMS }, () => ({ wrong: '', term: '' }))
+  )
+  function setCustomTerm(i, field, value) {
+    setCustomTerms((rows) => rows.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)))
+  }
+
   // 도메인 용어 보정(튜닝 1단계) — 보정이 일어난 경우에만 전/후 CER을 비교한다
-  const corrected = useMemo(() => applyLexicon(transcript), [transcript])
+  const corrected = useMemo(
+    () => applyLexicon(transcript, buildCustomLexicon(customTerms)),
+    [transcript, customTerms]
+  )
   const correctedCer = useMemo(() => {
     if (!refScript.trim() || corrected.applied.length === 0) return null
     return computeCer(refScript, corrected.text)
@@ -340,6 +351,33 @@ export default function SttPage() {
                 placeholder="정답 스크립트를 붙여넣으세요"
                 aria-label="정답 스크립트"
               />
+              <details className="custom-docs qa-custom">
+                <summary>
+                  + 도메인 사전 커스터마이즈 — 오전사→정정 쌍 추가 (최대 {MAX_CUSTOM_TERMS}개)
+                </summary>
+                <p className="result-empty-sub">
+                  내장 사전(한빛텔레콤·위약금 등 7종)에 우리 도메인의 용어를 얹어 보정 효과를
+                  직접 실험해 보세요. 보정 전/후 CER 개선 폭이 즉시 다시 계산됩니다.
+                </p>
+                {customTerms.map((r, i) => (
+                  <div className="qa-custom-row" key={i}>
+                    <input
+                      type="text"
+                      placeholder="Whisper 오전사 (예: 한 밑에 내 콤)"
+                      value={r.wrong}
+                      maxLength={30}
+                      onChange={(e) => setCustomTerm(i, 'wrong', e.target.value)}
+                    />
+                    <input
+                      type="text"
+                      placeholder="정정할 용어 (예: 한빛텔레콤)"
+                      value={r.term}
+                      maxLength={30}
+                      onChange={(e) => setCustomTerm(i, 'term', e.target.value)}
+                    />
+                  </div>
+                ))}
+              </details>
               {cer && (
                 <div className="stat-row">
                   <div className="stat-tile">
@@ -367,8 +405,9 @@ export default function SttPage() {
                   </p>
                   <div className="chip-row">
                     {corrected.applied.map((a) => (
-                      <span className="chip" key={a.term}>
+                      <span className={`chip${a.custom ? ' mine-chip' : ''}`} key={a.term}>
                         → {a.term} ×{a.count}
+                        {a.custom ? ' (커스텀)' : ''}
                       </span>
                     ))}
                   </div>

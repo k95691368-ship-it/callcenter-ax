@@ -17,19 +17,43 @@ export const LEXICON = [
   { term: '에스컬레이션', patterns: [/에스칼레이션/g, /이스컬레이션/g] },
 ]
 
+export const MAX_CUSTOM_TERMS = 3
+
+// 사용자 입력(오전사→정정 쌍)을 검증해 커스텀 사전 항목으로 만든다.
+// 정규식이 아닌 리터럴 문자열 매칭이라 사용자가 특수문자를 넣어도 안전하다.
+export function buildCustomLexicon(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const r of raw.slice(0, MAX_CUSTOM_TERMS)) {
+    const wrong = typeof r?.wrong === 'string' ? r.wrong.trim().slice(0, 30) : ''
+    const term = typeof r?.term === 'string' ? r.term.trim().slice(0, 30) : ''
+    if (!wrong || !term || wrong === term) continue
+    out.push({ term, literals: [wrong], custom: true })
+  }
+  return out
+}
+
 // 전사 텍스트에 사전을 적용한다. 반환: { text, applied: [{term, count}] }
-export function applyLexicon(text) {
+// extra(커스텀 사전)를 주면 내장 사전 뒤에 이어서 적용한다.
+export function applyLexicon(text, extra = []) {
   let out = text || ''
   const applied = []
-  for (const entry of LEXICON) {
+  for (const entry of [...LEXICON, ...extra]) {
     let count = 0
-    for (const pattern of entry.patterns) {
+    for (const pattern of entry.patterns || []) {
       out = out.replace(pattern, () => {
         count += 1
         return entry.term
       })
     }
-    if (count > 0) applied.push({ term: entry.term, count })
+    for (const lit of entry.literals || []) {
+      const parts = out.split(lit)
+      if (parts.length > 1) {
+        count += parts.length - 1
+        out = parts.join(entry.term)
+      }
+    }
+    if (count > 0) applied.push({ term: entry.term, count, ...(entry.custom ? { custom: true } : {}) })
   }
   return { text: out, applied }
 }

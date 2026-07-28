@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyLexicon } from '../src/lib/domainLexicon.js'
+import { applyLexicon, buildCustomLexicon } from '../src/lib/domainLexicon.js'
 import { computeCer } from '../src/lib/cer.js'
 
 describe('applyLexicon (STT 도메인 보정)', () => {
@@ -35,5 +35,43 @@ describe('applyLexicon (STT 도메인 보정)', () => {
     const after = computeCer(ref, applyLexicon(hyp).text).cer
     expect(after).toBeLessThan(before)
     expect(after).toBe(0)
+  })
+})
+
+describe('buildCustomLexicon', () => {
+  it('유효한 쌍을 정규화하고 최대 3개까지만 받는다', () => {
+    const built = buildCustomLexicon([
+      { wrong: ' 포오수 ', term: '포오스' },
+      { wrong: 'a', term: 'b' },
+      { wrong: 'c', term: 'd' },
+      { wrong: 'e', term: 'f' },
+    ])
+    expect(built).toHaveLength(3)
+    expect(built[0]).toMatchObject({ term: '포오스', literals: ['포오수'], custom: true })
+  })
+
+  it('빈 값·동일 쌍·비배열 입력은 안전하게 버린다', () => {
+    expect(buildCustomLexicon([{ wrong: '', term: 'x' }, { wrong: 'x', term: 'x' }])).toEqual([])
+    expect(buildCustomLexicon(null)).toEqual([])
+  })
+})
+
+describe('applyLexicon 커스텀 사전', () => {
+  it('커스텀 리터럴 쌍을 적용하고 custom 표시를 남긴다', () => {
+    const custom = buildCustomLexicon([{ wrong: '포오수', term: '포오스' }])
+    const r = applyLexicon('포오수 상담 시스템은 포오수가 만든다', custom)
+    expect(r.text).toBe('포오스 상담 시스템은 포오스가 만든다')
+    expect(r.applied).toContainEqual({ term: '포오스', count: 2, custom: true })
+  })
+
+  it('정규식 특수문자가 든 커스텀 입력도 리터럴로 안전하게 처리한다', () => {
+    const custom = buildCustomLexicon([{ wrong: '(주)포오수', term: '(주)포오스' }])
+    const r = applyLexicon('(주)포오수 문의', custom)
+    expect(r.text).toBe('(주)포오스 문의')
+  })
+
+  it('커스텀 없이 호출하면 기존 동작 그대로다', () => {
+    const r = applyLexicon('한 밑에 내 콤 위악금 문의')
+    expect(r.text).toBe('한빛텔레콤 위약금 문의')
   })
 })
