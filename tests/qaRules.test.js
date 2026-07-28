@@ -8,6 +8,8 @@ import {
   REQUIRED_MENTIONS,
   buildCustomMentions,
   mentionRuleSet,
+  consistencyBand,
+  applyConsistencyBand,
 } from '../src/lib/qaRules.js'
 
 const GOOD_CALL = `상담사: 안녕하세요, 한빛텔레콤 상담사입니다. 통화 내용이 녹음됩니다.
@@ -149,5 +151,35 @@ describe('checkMentions 커스텀 키워드 판정', () => {
     expect(res.find((m) => m.id === 'greeting').found).toBe(true)
     const miss = checkMentions('요금 안내입니다.', set).find((m) => m.custom)
     expect(miss.found).toBe(false)
+  })
+})
+
+describe('consistencyBand·applyConsistencyBand (점수 일관성)', () => {
+  const goodMentions = REQUIRED_MENTIONS.map((m) => ({ ...m, found: true }))
+  const badMentions = REQUIRED_MENTIONS.map((m) => ({ ...m, found: false }))
+
+  it('규칙 신호가 좋으면 높은 구간, 나쁘면 낮은 구간이 된다', () => {
+    const good = consistencyBand(goodMentions, [])
+    const bad = consistencyBand(badMentions, [{ deduct: 6 }, { deduct: 5 }, { deduct: 4 }])
+    expect(good.high).toBeGreaterThan(bad.high)
+    expect(good.low).toBeGreaterThan(bad.low)
+  })
+
+  it('구간을 벗어난 LLM 점수는 경계로 보정하고 adjusted를 표시한다', () => {
+    const r = applyConsistencyBand(
+      { empathy: 20, clarity: 20, resolution: 20 },
+      { mentions: badMentions, findings: [{ deduct: 6 }, { deduct: 5 }, { deduct: 4 }] }
+    )
+    expect(r.adjusted).toBe(true)
+    expect(r.llm.empathy).toBeLessThanOrEqual(r.band.high)
+  })
+
+  it('구간 안의 점수는 그대로 두고 adjusted=false다', () => {
+    const r = applyConsistencyBand(
+      { empathy: 15, clarity: 16, resolution: 14 },
+      { mentions: goodMentions, findings: [] }
+    )
+    expect(r.adjusted).toBe(false)
+    expect(r.llm).toEqual({ empathy: 15, clarity: 16, resolution: 14 })
   })
 })

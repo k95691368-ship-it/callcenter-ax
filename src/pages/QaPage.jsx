@@ -199,7 +199,9 @@ export default function QaPage() {
                     </span>
                   </div>
                   <div className="stat-tile">
-                    <span className="stat-label">LLM 정성 평가{score.llmEstimated ? ' (추정)' : ''}</span>
+                    <span className="stat-label">
+                      LLM 정성 평가{score.llmEstimated ? ' (추정)' : result.llm_adjusted ? ' (일관성 보정)' : ''}
+                    </span>
                     <span className="stat-value">{score.llmScore}/60</span>
                   </div>
                   <div className="stat-tile">

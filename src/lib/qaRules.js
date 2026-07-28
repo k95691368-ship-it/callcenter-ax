@@ -172,6 +172,30 @@ export function agentLines(transcript) {
 
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n))
 
+// LLM 정성 점수의 실행 간 편차를 줄이는 일관성 밴드.
+// 결정적인 규칙 신호(멘트 이행률·금지 표현 수)로 기대 구간을 만들고,
+// LLM 점수가 구간을 크게 벗어나면 경계로 보정한다 (보정 여부는 정직하게 표시).
+export function consistencyBand(mentions = [], findings = []) {
+  const total = mentions.length || 1
+  const ratio = mentions.filter((m) => m.found).length / total
+  const penalty = Math.min(findings.length * 2, 6)
+  const mid = clamp(Math.round(8 + ratio * 10 - penalty), 2, 18)
+  return { low: clamp(mid - 5, 0, 20), high: clamp(mid + 5, 0, 20) }
+}
+
+export function applyConsistencyBand(llm, { mentions = [], findings = [] } = {}) {
+  const { low, high } = consistencyBand(mentions, findings)
+  const out = {}
+  let adjusted = false
+  for (const key of ['empathy', 'clarity', 'resolution']) {
+    const raw = clamp(Math.round(llm?.[key] ?? 0), 0, 20)
+    const banded = clamp(raw, low, high)
+    if (banded !== raw) adjusted = true
+    out[key] = banded
+  }
+  return { llm: out, adjusted, band: { low, high } }
+}
+
 // 최종 점수 합산: 규칙 40점 + LLM 정성 60점(공감·명확성·문제해결 각 20) − 금지 표현 감점.
 // llm이 없으면(데모·폴백) 규칙 이행률을 60점 만점으로 환산해 보수적으로 추정한다.
 export function computeQaScore({ mentions = [], findings = [], llm = null }) {

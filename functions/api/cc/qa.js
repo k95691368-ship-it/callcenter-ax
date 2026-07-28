@@ -13,6 +13,7 @@ import {
   buildCustomMentions,
   mentionRuleSet,
   REQUIRED_MENTIONS,
+  applyConsistencyBand,
 } from '../../../src/lib/qaRules.js'
 
 const MAX_CHARS = 8000
@@ -30,7 +31,7 @@ const TOOL = {
       comments: {
         type: 'array',
         items: { type: 'string' },
-        description: '평가 근거 코멘트 2~4개 (통화에서 실제 확인된 내용만)',
+        description: '각 점수의 근거가 된 실제 발화를 인용한 코멘트 2~4개 (인용 없는 추정 금지)',
       },
       coaching: { type: 'string', description: '상담사에게 주는 코칭 한 줄 (행동 중심, 인신공격 금지)' },
     },
@@ -41,8 +42,14 @@ const SYSTEM = `당신은 콜센터 QA(품질 평가) 전문가입니다. 통화
 
 규칙:
 1. 통화에 실제로 나온 발화만 근거로 쓰세요. 없는 내용을 추정해 감점·가점하지 마세요.
-2. 점수 기준 — 각 항목 0~20: 결정적 결함(무성의, 잘못된 안내)은 8점 이하, 무난하면 12~15, 모범적이면 16~20.
-3. 코칭은 "무엇을 어떻게 바꿔라" 형태의 행동 지침 한 줄로 쓰세요.
+2. 점수는 반드시 아래 행동 앵커에 맞춰 매기세요 (각 항목 0~20):
+   - 0~4: 결정적 결함 — 반말·책임 회피·잘못된 안내가 실제 발화로 확인됨
+   - 5~8: 미흡 — 사과·해결 시도는 있으나 구체성 없음
+   - 9~12: 보통 — 기본 응대는 수행, 선제적 안내 부족
+   - 13~16: 양호 — 구체 수치·절차 안내, 공감 표현 확인됨
+   - 17~20: 모범 — 선제 안내 + 대안 제시 + 다음 단계 확정까지 모두 확인됨
+3. 점수를 매기기 전에 근거 발화를 먼저 인용하고, 인용된 발화만으로 점수를 정하세요.
+4. 코칭은 "무엇을 어떻게 바꿔라" 형태의 행동 지침 한 줄로 쓰세요.
 ${CALL_SAFETY_RULES}`
 
 // 데모·폴백용 LLM 정성 평가 모사 — 규칙 층 결과에 비례한 보수적 추정치
@@ -134,11 +141,17 @@ export async function onRequestPost(context) {
     })
     const result = r.input
     ensureContract(result, { arrays: ['comments'], strings: ['coaching'] })
-    const llm = {
-      empathy: clampScore(result.empathy),
-      clarity: clampScore(result.clarity),
-      resolution: clampScore(result.resolution),
-    }
+    // 일관성 밴드 — 결정적 규칙 신호로 만든 기대 구간을 벗어난 점수를 보정해
+    // 같은 통화의 실행 간 점수 편차를 좁힌다 (보정 시 정직하게 표시)
+    const banded = applyConsistencyBand(
+      {
+        empathy: clampScore(result.empathy),
+        clarity: clampScore(result.clarity),
+        resolution: clampScore(result.resolution),
+      },
+      { mentions, findings }
+    )
+    const llm = banded.llm
     logCall(context, {
       endpoint: 'qa',
       mode: r.engine === 'claude' ? 'live' : 'live-oss',
@@ -150,6 +163,7 @@ export async function onRequestPost(context) {
       demo: false,
       usage: r.usage,
       llm_model: r.model,
+      llm_adjusted: banded.adjusted,
       comments: result.comments.slice(0, 4),
       coaching: result.coaching,
     })
