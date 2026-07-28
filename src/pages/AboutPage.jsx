@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { summarizeStats } from '../lib/statsSummary.js'
 
 const DUTY_MAP = [
   {
@@ -61,10 +62,18 @@ const LIVE_TABLE = [
 export default function AboutPage() {
   // 실시간 인프라 상태 — /api/cc/health가 바인딩·키 상태를 반환한다
   const [health, setHealth] = useState(null)
+  // 실측 운영 지표 — /api/cc/stats가 D1 텔레메트리 집계를 반환한다
+  const [stats, setStats] = useState(null)
   useEffect(() => {
     fetch('/api/cc/health')
       .then((r) => r.json())
       .then(setHealth)
+      .catch(() => {})
+    fetch('/api/cc/stats')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.ok) setStats({ summary: summarizeStats(d.rows), since: d.since })
+      })
       .catch(() => {})
   }, [])
 
@@ -206,8 +215,47 @@ export default function AboutPage() {
         </div>
       </section>
 
+      {stats && stats.summary.total > 0 && (
+        <section className="about-section">
+          <h2>5. 실측 운영 지표 — 이 사이트가 실제로 호출된 기록</h2>
+          <p className="about-note">
+            D1 텔레메트리(ai_calls)의 실시간 집계입니다. 입력 내용·IP는 저장하지 않으므로
+            집계에도 존재하지 않습니다{stats.since ? ` · 수집 시작 ${stats.since.slice(0, 10)} (UTC)` : ''}.
+          </p>
+          <div className="chip-row" aria-label="운영 지표 요약">
+            <span className="cat-badge cat-ship">누적 AI 호출 {stats.summary.total}회</span>
+            <span className="cat-badge cat-praise">라이브 호출 비율 {stats.summary.liveRatio}%</span>
+            <span className="usage-note">지금 이 순간의 실제 수치 (/api/cc/stats)</span>
+          </div>
+          <div className="req-table-wrap">
+            <table className="req-table">
+              <thead>
+                <tr>
+                  <th>기능</th>
+                  <th>누적 호출</th>
+                  <th>라이브 호출</th>
+                  <th>평균 지연</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.summary.endpoints.map((e) => (
+                  <tr key={e.endpoint}>
+                    <td>{e.label}</td>
+                    <td className="req-name">{e.calls}회</td>
+                    <td>{e.liveCalls}회</td>
+                    <td className="req-basis">
+                      {e.avgLatencyMs != null ? `${(e.avgLatencyMs / 1000).toFixed(1)}초` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       <section className="about-section">
-        <h2>5. 제작기 — AI 코딩 에이전트와 하루 만에</h2>
+        <h2>{stats && stats.summary.total > 0 ? '6' : '5'}. 제작기 — AI 코딩 에이전트와 하루 만에</h2>
         <div className="about-process">
           <div className="about-step">
             <strong>① 공고 분석</strong>

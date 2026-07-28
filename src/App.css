@@ -1451,6 +1451,12 @@
   margin: 0;
 }
 
+.about-note {
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  color: var(--ink-500);
+}
+
 .about-point {
   margin-top: 18px;
   background: var(--blue-050);
