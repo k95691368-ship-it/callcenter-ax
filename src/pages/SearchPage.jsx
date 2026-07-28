@@ -62,8 +62,9 @@ export default function SearchPage() {
         <span className="tool-tag">담당업무 ④ RAG · 검색 증강 생성</span>
         <h1>RAG 상담 지식 검색</h1>
         <p>
-          상담사가 통화 중 규정을 물으면, 질문을 <strong>bge-m3 임베딩</strong>으로 벡터화해 지식
-          문서 8건과 <strong>코사인 유사도</strong>로 대조하고, LLM이{' '}
+          상담사가 통화 중 규정을 물으면, <strong>bge-m3 벡터 유사도</strong>와{' '}
+          <strong>키워드 랭킹</strong>을 RRF(Reciprocal Rank Fusion)로 융합한{' '}
+          <strong>하이브리드 검색</strong>으로 지식 문서를 찾고, LLM이{' '}
           <strong>검색된 근거 문단만 사용해</strong> 답합니다. 문서에 없으면 "없다"고 답하는 것이
           원칙입니다 — 환각을 구조로 막는 RAG 설계입니다.
         </p>
@@ -126,9 +127,11 @@ export default function SearchPage() {
                 <OssLlmNote model={result.llm_model} />
                 <span className="usage-note">
                   검색:{' '}
-                  {result.mode === 'vector'
-                    ? `${result.embed_model} 임베딩 · 코사인 유사도`
-                    : '키워드 랭킹 (임베딩 폴백)'}
+                  {result.mode === 'hybrid'
+                    ? `하이브리드 — ${result.embed_model} 벡터 + 키워드 RRF 융합`
+                    : result.mode === 'vector'
+                      ? `${result.embed_model} 임베딩 · 코사인 유사도`
+                      : '키워드 랭킹 (임베딩 폴백)'}
                 </span>
               </div>
 

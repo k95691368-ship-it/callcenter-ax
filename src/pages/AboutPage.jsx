@@ -35,7 +35,7 @@ const DUTY_MAP = [
   },
   {
     duty: 'RAG 기반 검색',
-    impl: 'bge-m3 임베딩 → 코사인 유사도 → 근거 문단만 사용해 답변 + 인용 표시. 내 문서를 붙여넣으면 실시간 인덱싱되어 같은 코퍼스에서 검색',
+    impl: 'bge-m3 벡터 + 키워드 랭킹 RRF 융합 하이브리드 검색 → 근거 문단만 사용해 답변 + 인용 표시. 내 문서를 붙여넣으면 실시간 인덱싱되어 같은 코퍼스에서 검색',
     to: '/search',
     label: 'RAG 검색',
   },
@@ -53,7 +53,7 @@ const LIVE_TABLE = [
   { feature: '녹취 전사 (Whisper STT)', mode: '라이브', how: 'Workers AI 바인딩 — API 키 없이 실제 전사' },
   { feature: 'STT 성능 평가 (CER)', mode: '항상 실제 계산', how: '브라우저에서 Levenshtein 거리 계산 (순수 함수)' },
   { feature: 'STT 도메인 보정 (튜닝 1단계)', mode: '항상 실제 계산', how: '콜센터 용어 사전 후보정 + 보정 전/후 CER 비교' },
-  { feature: 'RAG 검색 (임베딩·유사도)', mode: '라이브', how: 'bge-m3 임베딩 + 코사인 유사도, 실패 시 키워드 랭킹 폴백' },
+  { feature: 'RAG 검색 (하이브리드)', mode: '라이브', how: 'bge-m3 벡터 + 키워드 랭킹 RRF 융합, 임베딩 실패 시 키워드 폴백' },
   { feature: 'QA 규칙 스캔 (멘트·금지 표현)', mode: '항상 실제 계산', how: '결정적 규칙 엔진 — 데모 모드에서도 진짜로 동작' },
   { feature: 'VOC 대시보드', mode: '항상 실제 계산', how: '내장 10건 + 직접 분석한 통화를 브라우저에 누적 집계 (서버 미전송)' },
   { feature: 'LLM 분석·QA 정성 평가·RAG 답변', mode: '라이브', how: '오픈소스 LLM(Llama 3.3 70B, Workers AI) — CLAUDE_API_KEY 등록 시 Claude Opus 5로 자동 상향' },

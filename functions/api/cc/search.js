@@ -4,7 +4,7 @@ import { callClaudeTool, ensureContract, hasApiKey, CALL_SAFETY_RULES } from '..
 import { callWorkersJson, hasWorkersAi } from '../../_lib/workersLlm.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
-import { FAQ_DOCS, rankByKeyword, cosineSim } from '../../../src/lib/faqDocs.js'
+import { FAQ_DOCS, rankByKeyword, cosineSim, fuseRankings } from '../../../src/lib/faqDocs.js'
 
 // Workers AI 다국어 임베딩 모델 (한국어 지원, 오픈소스)
 const EMBED_MODEL = '@cf/baai/bge-m3'
@@ -38,7 +38,7 @@ const SYSTEM = `당신은 콜센터 상담사를 돕는 지식 검색 어시스�
 3. 실제로 인용한 문서의 id만 cited_ids에 기록하세요.
 ${CALL_SAFETY_RULES}`
 
-// 임베딩 기반 검색 — 질문+문서 전체를 한 번에 벡터화해 코사인 유사도 상위 K건.
+// 임베딩 기반 검색 — 질문+문서 전체를 한 번에 벡터화해 코사인 유사도 내림차순 전체 랭킹.
 // 내장 FAQ에 사용자가 붙여넣은 문서(mydoc*)를 합쳐 실시간 인덱싱한다.
 async function vectorSearch(env, question, docs) {
   const texts = [question, ...docs.map((d) => `${d.title}\n${d.body}`)]
@@ -51,7 +51,6 @@ async function vectorSearch(env, question, docs) {
   const [qVec, ...docVecs] = vectors
   return docs.map((doc, i) => ({ ...doc, score: cosineSim(qVec, docVecs[i]) }))
     .sort((a, b) => b.score - a.score)
-    .slice(0, TOP_K)
 }
 
 // 사용자가 붙여넣은 문서를 검색 코퍼스 형식으로 정리한다 (최대 5건 × 800자)
@@ -99,12 +98,14 @@ export async function onRequestPost(context) {
   if (!(await checkRateLimit(env, 'cc:search:all', 60, 3600)))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
-  // 1단계: 검색 — 임베딩(벡터) 우선, 실패·미지원 시 키워드 랭킹으로 강등
+  // 1단계: 검색 — 벡터+키워드 하이브리드(RRF 융합) 우선, 임베딩 실패 시 키워드 랭킹으로 강등
   let results
-  let mode = 'vector'
+  let mode = 'hybrid'
   if (env.AI) {
     try {
-      results = await vectorSearch(env, question, corpus)
+      const vectorRank = await vectorSearch(env, question, corpus)
+      const keywordRank = rankByKeyword(question, corpus)
+      results = fuseRankings([vectorRank, keywordRank], { topK: TOP_K })
     } catch {
       results = null
     }
@@ -119,6 +120,7 @@ export async function onRequestPost(context) {
     body: r.body,
     mine: Boolean(r.mine),
     score: Math.round((r.score || 0) * 1000) / 1000,
+    ...(r.rrf != null ? { rrf: r.rrf } : {}),
   }))
 
   // 2단계: 답변 생성 사다리 — Claude(키 등록 시) → 오픈소스 LLM → 발췌 템플릿
@@ -131,7 +133,7 @@ export async function onRequestPost(context) {
     return json({
       demo: true,
       mode,
-      embed_model: mode === 'vector' ? EMBED_MODEL : null,
+      embed_model: mode === 'keyword' ? null : EMBED_MODEL,
       results: publicResults,
       ...t,
       notice: budgetOk ? undefined : '오늘의 라이브 답변 예산이 소진되어 발췌 답변을 표시합니다.',
@@ -164,7 +166,7 @@ export async function onRequestPost(context) {
     return json({
       demo: false,
       mode,
-      embed_model: mode === 'vector' ? EMBED_MODEL : null,
+      embed_model: mode === 'keyword' ? null : EMBED_MODEL,
       usage,
       llm_model: llmModel,
       results: publicResults,
@@ -177,7 +179,7 @@ export async function onRequestPost(context) {
     return json({
       demo: true,
       mode,
-      embed_model: mode === 'vector' ? EMBED_MODEL : null,
+      embed_model: mode === 'keyword' ? null : EMBED_MODEL,
       results: publicResults,
       ...t,
       notice: `일시적인 AI 혼잡으로 발췌 답변을 표시합니다. (${err.message})`,

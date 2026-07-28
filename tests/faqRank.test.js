@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { FAQ_DOCS, rankByKeyword, cosineSim } from '../src/lib/faqDocs.js'
+import { FAQ_DOCS, rankByKeyword, cosineSim, fuseRankings } from '../src/lib/faqDocs.js'
 
 describe('rankByKeyword (임베딩 폴백 랭킹)', () => {
   it('위약금 질문은 해지 위약금 문서를 1위로 올린다', () => {
@@ -36,5 +36,43 @@ describe('cosineSim', () => {
 
   it('영벡터는 0으로 처리한다 (0으로 나누지 않음)', () => {
     expect(cosineSim([0, 0], [1, 2])).toBe(0)
+  })
+})
+
+describe('fuseRankings (하이브리드 RRF 융합)', () => {
+  const A = { id: 'a', title: 'A', body: '', score: 0.9 }
+  const B = { id: 'b', title: 'B', body: '', score: 0.5 }
+  const C = { id: 'c', title: 'C', body: '', score: 0.4 }
+
+  it('두 랭킹 모두에서 상위인 문서가 최상단에 온다', () => {
+    const fused = fuseRankings([
+      [A, B, C],
+      [B, A, C],
+    ])
+    // A: 1/61+1/62, B: 1/62+1/61 → 동률, C: 1/63×2 → 최하위
+    expect(fused.map((d) => d.id)).toContain('a')
+    expect(fused[2].id).toBe('c')
+  })
+
+  it('한쪽 랭킹에만 있는 문서보다 양쪽에 있는 문서가 우선한다', () => {
+    const fused = fuseRankings([
+      [A, B],
+      [B, C],
+    ])
+    expect(fused[0].id).toBe('b')
+  })
+
+  it('topK로 절단하고 rrf 점수를 붙인다', () => {
+    const fused = fuseRankings([[A, B, C]], { topK: 2 })
+    expect(fused).toHaveLength(2)
+    expect(fused[0].rrf).toBeGreaterThan(fused[1].rrf)
+  })
+
+  it('첫 랭킹(벡터)의 원본 score 필드를 보존한다', () => {
+    const fused = fuseRankings([
+      [{ ...A, score: 0.87 }],
+      [{ ...A, score: 3 }],
+    ])
+    expect(fused[0].score).toBe(0.87)
   })
 })

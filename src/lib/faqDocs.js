@@ -69,6 +69,24 @@ export function rankByKeyword(question, docs = FAQ_DOCS) {
     .sort((a, b) => b.score - a.score)
 }
 
+// 하이브리드 랭킹 — 벡터 순위와 키워드 순위를 RRF(Reciprocal Rank Fusion)로 융합한다.
+// RRF 점수 = Σ 1/(k + 순위). k=60은 IR 관행값 — 상위 순위 간 격차를 완만하게 눌러
+// 한쪽 랭커의 과신을 막는다. 두 랭킹 모두에서 상위인 문서가 최상단에 온다.
+export function fuseRankings(rankings, { k = 60, topK = 3 } = {}) {
+  const scores = new Map()
+  const docs = new Map()
+  for (const list of rankings) {
+    list.forEach((doc, idx) => {
+      if (!docs.has(doc.id)) docs.set(doc.id, doc)
+      scores.set(doc.id, (scores.get(doc.id) || 0) + 1 / (k + idx + 1))
+    })
+  }
+  return [...scores.entries()]
+    .map(([id, rrf]) => ({ ...docs.get(id), rrf: Math.round(rrf * 10000) / 10000 }))
+    .sort((a, b) => b.rrf - a.rrf)
+    .slice(0, topK)
+}
+
 // 코사인 유사도 — 서버의 임베딩 검색과 테스트가 공유한다.
 export function cosineSim(a, b) {
   let dot = 0
