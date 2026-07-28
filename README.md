@@ -17,16 +17,19 @@
          → ④ LLM 통화 분석 → ⑤ Auto QA 점수표 → ⑥ VOC 대시보드 누적
 ```
 
+**🎙 내 목소리로 실행**: 그 자리에서 마이크로 녹음하면 같은 6단계를 내 목소리가 통과한다
+(녹음 미리듣기 제공, 서버 미보관).
+
 ## 데모 구성 — 전 기능 라이브
 
 | 화면 | 공고 담당업무 | 동작 방식 |
 |---|---|---|
 | [/stt](https://callcenter-ax.pages.dev/stt) | 오픈소스 STT 적용·**성능 평가·도메인 튜닝** | **Whisper large-v3-turbo** 전사(마이크 녹음·파일·내장 샘플) + **CER 측정** + **2종 모델 비교** + 도메인 용어 보정(전/후 CER 개선 표시) + LLM 화자 분리 |
 | [/analyze](https://callcenter-ax.pages.dev/analyze) | 분류·요약·**의도 분석** | 유형/3줄 요약/감정/의도/조치 구조화 분석 + **에스컬레이션 판단**(법적·강성 건은 사람에게) |
-| [/qa](https://callcenter-ax.pages.dev/qa) | **Auto QA** | 필수 멘트 체크(40점)·금지 표현 감점(규칙, 항상 실동작) + LLM 정성 평가(60점) 이중 구조 |
+| [/qa](https://callcenter-ax.pages.dev/qa) | **Auto QA** | 필수 멘트 체크(40점)·금지 표현 감점(규칙, 항상 실동작) + LLM 정성 평가(60점) 이중 구조 + **콜센터별 커스텀 체크리스트**(40점 균등 재배분) |
 | [/voc](https://callcenter-ax.pages.dev/voc) | **VOC 분석** | 내장 10건 + 직접 분석 건 실시간 누적 집계(SVG 차트) + **AI 인사이트 리포트**(집계 수치만 전송) |
-| [/search](https://callcenter-ax.pages.dev/search) | **RAG 검색** | **bge-m3 임베딩** → 코사인 유사도 → 근거 문단 강제 답변+인용. **내 문서 붙여넣기 실시간 인덱싱** |
-| [/about](https://callcenter-ax.pages.dev/about) | — | 공고 ↔ 구현 매핑표 · 구조도 · 라이브/데모 정직 구분표 |
+| [/search](https://callcenter-ax.pages.dev/search) | **RAG 검색** | **하이브리드 검색**(bge-m3 벡터 + 키워드 랭킹 **RRF 융합**) → 근거 문단 강제 답변+인용. **내 문서 붙여넣기 실시간 인덱싱** |
+| [/about](https://callcenter-ax.pages.dev/about) | — | 공고 ↔ 구현 매핑표 · 구조도 · 라이브/데모 정직 구분표 · **실측 운영 지표**(D1 텔레메트리 집계: 호출 수·라이브 비율·평균 지연) |
 
 실측 예시: 테스트 음성(26자)을 turbo가 2.1초에 전사(CER 2.6%), base whisper는
 "한빛텔레콤"→"한 밑에 내 콤"으로 붕괴 → 도메인 보정 적용 시 CER 0% — 모델 성능 평가와
@@ -70,7 +73,7 @@ Cloudflare Pages Functions  /api/cc/{stt, diarize, analyze, qa, search, voc-repo
 npm install
 npm run dev        # 프론트만 (API는 데모 폴백)
 npm run dev:full   # 빌드 + wrangler pages dev (Functions 포함)
-npm test           # vitest 59개 (QA 점수·CER·도메인 보정·검색 랭킹·계약 검증·JSON 파서)
+npm test           # vitest 75개 (QA 점수·커스텀 규칙·CER·도메인 보정·RRF 융합·계약 검증·JSON 파서·운영 지표)
 npm run lint       # oxlint
 git push           # Cloudflare Pages Git 연동 자동 빌드·배포 (wrangler.toml 바인딩 자동 적용)
 ```
@@ -81,6 +84,6 @@ git push           # Cloudflare Pages Git 연동 자동 빌드·배포 (wrangler
 ## 문서
 
 - [기획안.md](기획안.md) — 회사·공고 분석 → 기능 매핑 → 기술 선택 이유
-- [개선기획안.md](개선기획안.md) — 하루 동안의 배포 후 개선 사이클 10회 기록
+- [개선기획안.md](개선기획안.md) — 이틀간의 배포 후 개선 사이클 15회 기록
 - [docs/기능정리.md](docs/기능정리.md) — 전체 구현 기능 상세 설명
 - [docs/녹음스크립트.md](docs/녹음스크립트.md) — 내 목소리로 STT 시연용 대본 5종
