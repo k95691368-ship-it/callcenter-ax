@@ -38,9 +38,10 @@ const SYSTEM = `당신은 콜센터 상담사를 돕는 지식 검색 어시스�
 3. 실제로 인용한 문서의 id만 cited_ids에 기록하세요.
 ${CALL_SAFETY_RULES}`
 
-// 임베딩 기반 검색 — 질문+문서 8건을 한 번에 벡터화해 코사인 유사도 상위 K건
-async function vectorSearch(env, question) {
-  const texts = [question, ...FAQ_DOCS.map((d) => `${d.title}\n${d.body}`)]
+// 임베딩 기반 검색 — 질문+문서 전체를 한 번에 벡터화해 코사인 유사도 상위 K건.
+// 내장 FAQ에 사용자가 붙여넣은 문서(mydoc*)를 합쳐 실시간 인덱싱한다.
+async function vectorSearch(env, question, docs) {
+  const texts = [question, ...docs.map((d) => `${d.title}\n${d.body}`)]
   const out = await Promise.race([
     env.AI.run(EMBED_MODEL, { text: texts }),
     new Promise((_, reject) => setTimeout(() => reject(new Error('임베딩 지연')), 20000)),
@@ -48,9 +49,23 @@ async function vectorSearch(env, question) {
   const vectors = out?.data
   if (!Array.isArray(vectors) || vectors.length !== texts.length) throw new Error('임베딩 응답 형식 오류')
   const [qVec, ...docVecs] = vectors
-  return FAQ_DOCS.map((doc, i) => ({ ...doc, score: cosineSim(qVec, docVecs[i]) }))
+  return docs.map((doc, i) => ({ ...doc, score: cosineSim(qVec, docVecs[i]) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, TOP_K)
+}
+
+// 사용자가 붙여넣은 문서를 검색 코퍼스 형식으로 정리한다 (최대 5건 × 800자)
+function buildCustomDocs(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .map((d) => String(d ?? '').trim())
+    .filter(Boolean)
+    .slice(0, 5)
+    .map((body, i) => ({
+      id: `mydoc${i + 1}`,
+      title: `내 문서 ${i + 1}: ${body.slice(0, 20)}${body.length > 20 ? '…' : ''}`,
+      body: body.slice(0, 800),
+      mine: true,
+    }))
 }
 
 // LLM 없이 쓰는 템플릿 답변 — 최상위 문서 발췌로 흐름을 유지한다
@@ -70,6 +85,8 @@ export async function onRequestPost(context) {
   const body = await readJsonBody(request)
   const question = typeof body?.question === 'string' ? body.question.trim().slice(0, 300) : ''
   if (!question) return errorJson('질문을 입력해주세요.')
+  const customDocs = buildCustomDocs(body?.custom_docs)
+  const corpus = [...FAQ_DOCS, ...customDocs]
 
   if (!(await verifyTurnstile(env, request)))
     return errorJson('보안 검증에 실패했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요.', 403)
@@ -87,19 +104,20 @@ export async function onRequestPost(context) {
   let mode = 'vector'
   if (env.AI) {
     try {
-      results = await vectorSearch(env, question)
+      results = await vectorSearch(env, question, corpus)
     } catch {
       results = null
     }
   }
   if (!results) {
     mode = 'keyword'
-    results = rankByKeyword(question).slice(0, TOP_K)
+    results = rankByKeyword(question, corpus).slice(0, TOP_K)
   }
   const publicResults = results.map((r) => ({
     id: r.id,
     title: r.title,
     body: r.body,
+    mine: Boolean(r.mine),
     score: Math.round((r.score || 0) * 1000) / 1000,
   }))
 

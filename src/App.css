@@ -1623,3 +1623,42 @@
   font-size: 13px;
   color: var(--ink-400);
 }
+
+/* ===== RAG 내 문서 추가 ===== */
+.custom-docs {
+  background: #fff;
+  border-radius: 14px;
+  padding: 12px 15px;
+  box-shadow: var(--shadow-card);
+  font-size: 13.5px;
+}
+
+.custom-docs summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--blue-700);
+}
+
+.custom-docs textarea {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.custom-docs textarea:focus {
+  outline: none;
+  border-color: var(--blue-600);
+}
+
+.mine-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  margin-right: 6px;
+  background: var(--green-050);
+  color: var(--green-600);
+}

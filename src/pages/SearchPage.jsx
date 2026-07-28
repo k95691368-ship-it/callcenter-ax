@@ -19,10 +19,18 @@ const SAMPLE_QUESTIONS = [
 
 export default function SearchPage() {
   const [question, setQuestion] = useState(SAMPLE_QUESTIONS[0])
+  const [customText, setCustomText] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const resultRef = useRef(null)
+
+  // 빈 줄로 구분해 문서 여러 건을 붙여넣을 수 있다 (최대 5건)
+  const customDocs = customText
+    .split(/\n\s*\n/)
+    .map((d) => d.trim())
+    .filter(Boolean)
+    .slice(0, 5)
 
   async function search(e) {
     e.preventDefault()
@@ -33,7 +41,10 @@ export default function SearchPage() {
     setLoading(true)
     setError('')
     try {
-      const data = await postJson('/api/cc/search', { question })
+      const data = await postJson('/api/cc/search', {
+        question,
+        ...(customDocs.length ? { custom_docs: customDocs } : {}),
+      })
       setResult(data)
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
@@ -71,12 +82,28 @@ export default function SearchPage() {
               </button>
             ))}
           </div>
+          <details className="custom-docs">
+            <summary>
+              ＋ 내 문서 추가해서 검색 (선택){customDocs.length > 0 && ` — ${customDocs.length}건 인식됨`}
+            </summary>
+            <textarea
+              value={customText}
+              onChange={(e) => setCustomText(e.target.value)}
+              rows={6}
+              placeholder={'회사 규정·FAQ를 붙여넣으세요. 빈 줄로 문서를 구분합니다 (최대 5건).\n\n예) 프리미엄 요금제는 가입 후 14일 이내 무료 해지가 가능하다. 이후에는...'}
+              aria-label="내 문서"
+            />
+            <p className="result-empty-sub">
+              붙여넣은 문서는 질문과 함께 실시간 임베딩되어 내장 규정 8건과 같은 코퍼스에서
+              검색됩니다 — 서버에 저장되지 않습니다.
+            </p>
+          </details>
           <button type="submit" className="btn-primary" disabled={loading}>
             {loading ? '검색 중... (5~20초)' : '지식 검색하기'}
           </button>
           {error && <p className="form-error" role="alert">{error}</p>}
           <p className="result-empty-sub">
-            지식 문서는 가상 통신사 "한빛텔레콤"의 상담 규정 8건입니다 (자작 데이터).
+            기본 지식 문서는 가상 통신사 "한빛텔레콤"의 상담 규정 8건입니다 (자작 데이터).
           </p>
         </form>
 
@@ -122,7 +149,7 @@ export default function SearchPage() {
                     <div className="rank-row" key={r.id}>
                       <span className="rank-label">
                         {result.cited_ids?.includes(r.id) ? '📎 ' : ''}
-                        [{r.id}] {r.title}
+                        {r.mine && <span className="chip mine-chip">내 문서</span>}[{r.id}] {r.title}
                       </span>
                       <span className="rank-track">
                         <span
