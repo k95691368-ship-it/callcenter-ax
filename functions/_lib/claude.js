@@ -1,7 +1,13 @@
 const MODEL = 'claude-opus-5'
 
+// 사용자가 Cloudflare에 등록한 시크릿 이름 그대로 읽는다.
+// (기본 CLAUDE_API_KEY도 함께 지원 — 어느 이름으로 등록해도 동작)
+export function getApiKey(env) {
+  return env.CLAUDE_API_KEY || env['callcenter-ax.pages.dev'] || ''
+}
+
 export function hasApiKey(env) {
-  return Boolean(env.CLAUDE_API_KEY)
+  return Boolean(getApiKey(env))
 }
 
 // tool 강제 호출로 구조화된 JSON을 받는 공용 헬퍼.
@@ -9,7 +15,7 @@ export function hasApiKey(env) {
 // 호출부의 maxTokens에 여유를 두고, effort=medium으로 분류·요약 작업의 비용을 조절한다.
 // 반환값: { input: tool_use 블록의 input 객체, usage: 토큰 사용량 }
 export async function callClaudeTool(env, { system, user, tool, maxTokens = 8192 }) {
-  const apiKey = env.CLAUDE_API_KEY
+  const apiKey = getApiKey(env)
   if (!apiKey) throw new Error('CLAUDE_API_KEY가 설정되지 않았습니다.')
 
   const doFetch = () =>
