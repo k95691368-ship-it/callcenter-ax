@@ -6,6 +6,7 @@ import { runLlmLadder } from '../../_lib/ladder.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { FAQ_DOCS, rankByKeyword, cosineSim, fuseRankings } from '../../../src/lib/faqDocs.js'
+import { groundedness } from '../../../src/lib/grounding.js'
 
 // Workers AI 다국어 임베딩 모델 (한국어 지원, 오픈소스)
 const EMBED_MODEL = '@cf/baai/bge-m3'
@@ -202,6 +203,8 @@ export async function onRequestPost(context) {
     })
     const result = r.input
     ensureContract(result, { arrays: ['cited_ids'], strings: ['answer'] })
+    // 근거율 게이트 — 답변 표현이 검색 문서와 실제로 겹치는 비율을 결정적으로 측정
+    const grounding = groundedness(result.answer, results.map((x) => `${x.title} ${x.body}`).join(' '))
     logCall(context, {
       endpoint: 'search',
       mode: r.engine === 'claude' ? `live-${mode}` : `live-oss-${mode}`,
@@ -218,6 +221,10 @@ export async function onRequestPost(context) {
       results: publicResults,
       answer: result.answer,
       cited_ids: result.cited_ids.filter((id) => results.some((x) => x.id === id)),
+      grounding,
+      ...(grounding < 0.35
+        ? { notice: '답변의 문서 근거율이 낮습니다 — 아래 근거 문단 원문을 직접 확인해주세요.' }
+        : {}),
     })
   } catch (err) {
     const t = templateAnswer(results)

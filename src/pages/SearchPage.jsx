@@ -142,7 +142,18 @@ export default function SearchPage() {
               </div>
 
               <div className="highlight-box rag-answer">
-                <strong>답변</strong>
+                <strong>
+                  답변
+                  {typeof result.grounding === 'number' && (
+                    <span
+                      className="chip mine-chip"
+                      style={{ marginLeft: 8 }}
+                      title="답변의 문자 2-gram이 검색된 근거 문서에서 발견되는 비율 — 지시가 아니라 검증으로 확인한 수치입니다."
+                    >
+                      근거율 {Math.round(result.grounding * 100)}%
+                    </span>
+                  )}
+                </strong>
                 <p>{result.answer}</p>
                 {result.cited_ids?.length > 0 && (
                   <p className="result-empty-sub">
