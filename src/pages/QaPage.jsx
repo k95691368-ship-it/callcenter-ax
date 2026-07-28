@@ -56,6 +56,27 @@ export default function QaPage() {
     }
   }, [])
 
+  const [copied, setCopied] = useState(false)
+
+  // QA 점수표를 코칭 공유용 텍스트로 복사한다
+  async function copyResult() {
+    if (!result) return
+    const s = result.score
+    const lines = [
+      `[Auto QA] 총점 ${s.total}/100 (${s.grade}등급) — 규칙 ${s.ruleScore}/${MAX_RULE_SCORE} · LLM ${s.llmScore}/60 · 감점 -${s.deduction}`,
+      `필수 멘트: ${result.mentions.map((m) => `${m.label} ${m.found ? 'O' : 'X'}`).join(', ')}`,
+      ...(result.findings.length ? [`금지 표현: ${result.findings.map((f) => `"${f.word}"(-${f.deduct})`).join(', ')}`] : []),
+      ...(result.coaching ? [`코칭: ${result.coaching}`] : []),
+    ]
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setError('클립보드 복사에 실패했습니다.')
+    }
+  }
+
   async function evaluate(e) {
     e.preventDefault()
     if (!text.trim()) {
@@ -145,6 +166,10 @@ export default function QaPage() {
                   </div>
                 </div>
               </div>
+
+              <button type="button" className="btn-ghost qa-copy" onClick={copyResult}>
+                {copied ? '✓ 복사됨' : '점수표 복사 (코칭 공유용)'}
+              </button>
 
               <section className="analysis-block">
                 <h2>필수 안내 멘트 체크리스트 (규칙 기반)</h2>

@@ -88,11 +88,21 @@ export default function SttPage() {
   const [refScript, setRefScript] = useState('')
   const [diarizing, setDiarizing] = useState(false)
   const [diaMeta, setDiaMeta] = useState(null)
+  const [audioUrl, setAudioUrl] = useState('')
   const resultRef = useRef(null)
+
+  // 선택·녹음된 음성을 미리 들어볼 수 있게 objectURL을 관리한다
+  function setFileWithPreview(f) {
+    setFile(f)
+    setAudioUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return f ? URL.createObjectURL(f) : ''
+    })
+  }
 
   const recorder = useRecorder({
     onDone: (f) => {
-      setFile(f)
+      setFileWithPreview(f)
       setError('')
     },
     onError: setError,
@@ -166,7 +176,7 @@ export default function SttPage() {
       const res = await fetch('/sample-call.wav')
       const blob = await res.blob()
       const f = new File([blob], '내장 샘플 음성.wav', { type: 'audio/wav' })
-      setFile(f)
+      setFileWithPreview(f)
       setRefScript(SAMPLE_SCRIPT)
       runTranscribe(f, true)
     } catch {
@@ -264,17 +274,20 @@ export default function SttPage() {
                 type="file"
                 accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm"
                 onChange={(e) => {
-                  setFile(e.target.files?.[0] ?? null)
+                  setFileWithPreview(e.target.files?.[0] ?? null)
                   setError('')
                 }}
               />
             </label>
             {file && (
-              <p className="batch-meta">
-                <span className="batch-count ok">
-                  {file.name} · {(file.size / 1024 / 1024).toFixed(2)}MB
-                </span>
-              </p>
+              <>
+                <p className="batch-meta">
+                  <span className="batch-count ok">
+                    {file.name} · {(file.size / 1024 / 1024).toFixed(2)}MB
+                  </span>
+                </p>
+                {audioUrl && <audio controls src={audioUrl} className="stt-audio" />}
+              </>
             )}
             <label className="channel-check compare-check">
               <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} />

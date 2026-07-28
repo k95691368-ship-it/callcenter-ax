@@ -9,6 +9,12 @@ const PROOFS = [
 
 const DEMOS = [
   {
+    to: '/pipeline',
+    tag: '원클릭 시연 ★',
+    title: '전체 파이프라인',
+    desc: '버튼 하나로 실제 API 6단계가 연속 실행됩니다 — 음성 전사 → 도메인 보정 → 화자 분리 → LLM 분석 → Auto QA → VOC 누적. 심사를 여기서 시작하세요.',
+  },
+  {
     to: '/stt',
     tag: '담당업무 ① STT',
     title: '녹취 전사 (Whisper)',

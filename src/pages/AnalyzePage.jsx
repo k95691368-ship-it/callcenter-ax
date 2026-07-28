@@ -52,6 +52,26 @@ export default function AnalyzePage() {
     }
   }, [])
 
+  const [copied, setCopied] = useState(false)
+
+  // 분석 결과를 실무 인수인계 형식 텍스트로 복사한다
+  async function copyResult() {
+    if (!result) return
+    const lines = [
+      `[통화 분석] 유형: ${result.category} / 감정: ${result.sentiment}${result.escalate ? ' / ⚠ 에스컬레이션 필요' : ''}`,
+      ...(result.summary || []).map((s, i) => `${i + 1}. ${s}`),
+      `조치: ${(result.actions || []).join(' · ')}`,
+      ...(result.escalate && result.escalate_reason ? [`에스컬레이션 사유: ${result.escalate_reason}`] : []),
+    ]
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setError('클립보드 복사에 실패했습니다.')
+    }
+  }
+
   async function analyze(e) {
     e.preventDefault()
     if (!text.trim()) {
@@ -185,9 +205,14 @@ export default function AnalyzePage() {
                 </div>
               )}
 
-              <button type="button" className="btn-ghost" onClick={sendToQa}>
-                이 통화를 Auto QA로 평가하기 →
-              </button>
+              <div className="hub-cta result-actions">
+                <button type="button" className="btn-ghost" onClick={copyResult}>
+                  {copied ? '✓ 복사됨' : '결과 복사 (인수인계용)'}
+                </button>
+                <button type="button" className="btn-ghost" onClick={sendToQa}>
+                  이 통화를 Auto QA로 평가하기 →
+                </button>
+              </div>
             </>
           )}
         </div>
