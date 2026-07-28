@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
@@ -6,6 +6,7 @@ import { OssLlmNote, UsageNote, WorkersAiNote } from '../components/ResultMeta.j
 import { applyLexicon } from '../lib/domainLexicon.js'
 import { saveMyCall } from '../lib/myCalls.js'
 import { MAX_RULE_SCORE } from '../lib/qaRules.js'
+import { useRecorder } from '../lib/useRecorder.js'
 
 // 공고의 담당업무 파이프라인(녹취→STT→분석→QA→VOC)을 버튼 하나로 통과시키는 시연.
 // 각 단계는 실제 프로덕션 API를 그대로 호출한다 — 별도의 시연용 가짜 경로가 없다.
@@ -38,7 +39,24 @@ export default function PipelinePage() {
   const [analysis, setAnalysis] = useState(null)
   const [qa, setQa] = useState(null)
 
-  async function run() {
+  // 마이크 모드 — 녹음을 끝내면 자기 목소리로 파이프라인이 바로 실행된다
+  const [micUrl, setMicUrl] = useState('')
+  const micUrlRef = useRef('')
+  useEffect(() => () => {
+    if (micUrlRef.current) URL.revokeObjectURL(micUrlRef.current)
+  }, [])
+  const recorder = useRecorder({
+    onDone: (file) => {
+      if (micUrlRef.current) URL.revokeObjectURL(micUrlRef.current)
+      const url = URL.createObjectURL(file)
+      micUrlRef.current = url
+      setMicUrl(url)
+      run(file)
+    },
+    onError: setError,
+  })
+
+  async function run(micAudio) {
     setError('')
     setStt(null)
     setLex(null)
@@ -46,10 +64,13 @@ export default function PipelinePage() {
     setAnalysis(null)
     setQa(null)
     try {
-      // ① STT — 내장 샘플 음성을 실제 Whisper로 전사
+      // ① STT — 내장 샘플 또는 방금 녹음한 목소리를 실제 Whisper로 전사
       setStage(0)
-      const wav = await fetch('/sample-call.wav').then((r) => r.arrayBuffer())
-      const sttRes = await postJson('/api/cc/stt', { audio_b64: b64FromBuffer(wav) })
+      const buf =
+        micAudio instanceof File
+          ? await micAudio.arrayBuffer()
+          : await fetch('/sample-call.wav').then((r) => r.arrayBuffer())
+      const sttRes = await postJson('/api/cc/stt', { audio_b64: b64FromBuffer(buf) })
       setStt(sttRes)
 
       // ② 도메인 보정
@@ -98,14 +119,38 @@ export default function PipelinePage() {
         <p>
           버튼 하나로 <strong>실제 프로덕션 API</strong>가 순서대로 실행됩니다 — 내장 샘플 음성
           전사(Whisper) → 도메인 용어 보정 → LLM 통화 분석 → Auto QA 점수표 → VOC 대시보드
-          누적. 시연용 가짜 경로 없이, 각 페이지에서 쓰는 그 파이프라인 그대로입니다.
+          누적. 시연용 가짜 경로 없이, 각 페이지에서 쓰는 그 파이프라인 그대로입니다.{' '}
+          <strong>🎙 내 목소리로 실행</strong>을 누르면 지금 이 자리에서 녹음한 목소리가 같은
+          6단계를 통과합니다.
         </p>
       </header>
 
       <div className="pipe-run">
-        <button type="button" className="btn-primary" onClick={run} disabled={stage >= 0 && stage < 6}>
-          {stage >= 0 && stage < 6 ? '파이프라인 실행 중...' : '▶ 전체 파이프라인 실행 (약 30~50초)'}
-        </button>
+        <div className="hub-cta">
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => run()}
+            disabled={(stage >= 0 && stage < 6) || recorder.recording}
+          >
+            {stage >= 0 && stage < 6 ? '파이프라인 실행 중...' : '▶ 내장 샘플로 실행 (약 30~50초)'}
+          </button>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={recorder.recording ? recorder.stop : recorder.start}
+            disabled={stage >= 0 && stage < 6}
+          >
+            {recorder.recording ? `■ 녹음 끝내고 바로 실행 (${recorder.seconds}초)` : '🎙 내 목소리로 실행'}
+          </button>
+        </div>
+        {recorder.recording && (
+          <p className="result-empty-sub">
+            상담 상황을 연기해 보세요 — 예: "고객님, 본인 확인을 위해 성함 부탁드립니다."
+            녹음을 멈추면 그 목소리로 6단계가 바로 실행됩니다.
+          </p>
+        )}
+        {micUrl && !recorder.recording && <audio controls src={micUrl} className="stt-audio" />}
         {error && <p className="form-error" role="alert">{error}</p>}
       </div>
 
