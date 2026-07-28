@@ -1,0 +1,6 @@
+# 보안 응답 헤더 — Cloudflare Pages가 모든 응답에 적용한다
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: microphone=(self), camera=(), geolocation=(), payment=()

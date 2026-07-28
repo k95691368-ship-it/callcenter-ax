@@ -157,7 +157,7 @@ export default function AboutPage() {
             <span className="arch-arrow">→</span>
             <div className="arch-box arch-core">
               <strong>Cloudflare Pages Functions</strong>
-              <span>/api/cc/stt · analyze · qa · search — 검증·폴백·레이트리밋의 관문</span>
+              <span>/api/cc/stt·diarize·analyze(+batch)·qa·search·assist·voc-report·stats·health — 검증·폴백·레이트리밋의 관문</span>
             </div>
             <span className="arch-arrow">→</span>
             <div className="arch-box">
@@ -171,8 +171,8 @@ export default function AboutPage() {
               <span>tool 강제 호출 → 구조화 JSON → ensureContract 계약 검증</span>
             </div>
             <div className="arch-box">
-              <strong>Cloudflare D1</strong>
-              <span>레이트리밋 버킷 · AI 호출 텔레메트리 (개인정보 미저장)</span>
+              <strong>Cloudflare D1 · Vectorize</strong>
+              <span>레이트리밋·텔레메트리 (개인정보 미저장) · RAG 사전 인덱스</span>
             </div>
             <div className="arch-box">
               <strong>안전장치</strong>
