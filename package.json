@@ -9,6 +9,7 @@
     "build": "vite build",
     "lint": "oxlint",
     "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
