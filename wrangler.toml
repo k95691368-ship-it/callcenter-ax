@@ -12,3 +12,9 @@ binding = "AI"
 binding = "DB"
 database_name = "callcenter-ax"
 database_id = "1d0484d2-397e-4301-9162-cbfe21d50f32"
+
+# Vectorize — RAG 사전 인덱스 (bge-m3 1024차원, 코사인). 매 요청 전체 임베딩의
+# 구조적 한계를 돌파: 질의 1건만 임베딩해 사전 색인된 코퍼스를 조회한다.
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "callcenter-faq"

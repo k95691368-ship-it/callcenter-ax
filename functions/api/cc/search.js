@@ -39,19 +39,52 @@ const SYSTEM = `당신은 콜센터 상담사를 돕는 지식 검색 어시스�
 3. 실제로 인용한 문서의 id만 cited_ids에 기록하세요.
 ${CALL_SAFETY_RULES}`
 
-// 임베딩 기반 검색 — 질문+문서 전체를 한 번에 벡터화해 코사인 유사도 내림차순 전체 랭킹.
-// 내장 FAQ에 사용자가 붙여넣은 문서(mydoc*)를 합쳐 실시간 인덱싱한다.
-async function vectorSearch(env, question, docs) {
-  const texts = [question, ...docs.map((d) => `${d.title}\n${d.body}`)]
+async function embedTexts(env, texts) {
   const out = await Promise.race([
     env.AI.run(EMBED_MODEL, { text: texts }),
     new Promise((_, reject) => setTimeout(() => reject(new Error('임베딩 지연')), 20000)),
   ])
   const vectors = out?.data
   if (!Array.isArray(vectors) || vectors.length !== texts.length) throw new Error('임베딩 응답 형식 오류')
-  const [qVec, ...docVecs] = vectors
+  return vectors
+}
+
+// 실시간 임베딩 검색(구 방식) — Vectorize 실패 시 폴백. 질문+문서 전체를 한 번에 벡터화.
+async function vectorSearch(env, question, docs) {
+  const [qVec, ...docVecs] = await embedTexts(env, [question, ...docs.map((d) => `${d.title}\n${d.body}`)])
   return docs.map((doc, i) => ({ ...doc, score: cosineSim(qVec, docVecs[i]) }))
     .sort((a, b) => b.score - a.score)
+}
+
+// 인덱스가 비어 있으면(콜드 스타트) 내장 FAQ 전체를 1회 업서트해 자가 시딩한다
+async function seedFaqIndex(env) {
+  const vecs = await embedTexts(env, FAQ_DOCS.map((d) => `${d.title}\n${d.body}`))
+  await env.VECTORIZE.upsert(FAQ_DOCS.map((d, i) => ({ id: d.id, values: vecs[i] })))
+}
+
+// Vectorize 사전 인덱스 검색 — 매 요청 전체 임베딩(문서 수에 비례)의 구조적 한계를
+// 돌파한다: 질의 1건만 임베딩해 사전 색인을 조회하므로 코퍼스가 수백 건이어도 동일 비용.
+// 내 문서(mydoc*)는 서버 미저장 원칙에 따라 색인하지 않고 요청 내에서만 코사인 대조한다.
+async function vectorizeSearch(env, question, customDocs) {
+  if (!env.VECTORIZE) return null
+  const [qVec, ...customVecs] = await embedTexts(env, [
+    question,
+    ...customDocs.map((d) => `${d.title}\n${d.body}`),
+  ])
+  let res = await env.VECTORIZE.query(qVec, { topK: 8 })
+  if (!res?.matches?.length) {
+    await seedFaqIndex(env)
+    res = await env.VECTORIZE.query(qVec, { topK: 8 })
+  }
+  if (!res?.matches?.length) return null // 색인 전파 지연 → 실시간 임베딩 폴백
+  const indexed = res.matches
+    .map((m) => {
+      const doc = FAQ_DOCS.find((d) => d.id === m.id)
+      return doc ? { ...doc, score: m.score } : null
+    })
+    .filter(Boolean)
+  const customs = customDocs.map((d, i) => ({ ...d, score: cosineSim(qVec, customVecs[i]) }))
+  return [...indexed, ...customs].sort((a, b) => b.score - a.score)
 }
 
 // 사용자가 붙여넣은 문서를 검색 코퍼스 형식으로 정리한다 (최대 5건 × 800자)
@@ -99,12 +132,23 @@ export async function onRequestPost(context) {
   if (!(await checkRateLimit(env, 'cc:search:all', 60, 3600)))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
-  // 1단계: 검색 — 벡터+키워드 하이브리드(RRF 융합) 우선, 임베딩 실패 시 키워드 랭킹으로 강등
+  // 1단계: 검색 — Vectorize 사전 인덱스 우선 → 실시간 임베딩 폴백, 키워드 랭킹과 RRF 융합
   let results
   let mode = 'hybrid'
+  let vectorBackend = null
   if (env.AI) {
     try {
-      const vectorRank = await vectorSearch(env, question, corpus)
+      let vectorRank = null
+      try {
+        vectorRank = await vectorizeSearch(env, question, customDocs)
+        if (vectorRank) vectorBackend = 'vectorize'
+      } catch {
+        vectorRank = null
+      }
+      if (!vectorRank) {
+        vectorRank = await vectorSearch(env, question, corpus)
+        vectorBackend = 'realtime'
+      }
       const keywordRank = rankByKeyword(question, corpus)
       results = fuseRankings([vectorRank, keywordRank], { topK: TOP_K })
     } catch {
@@ -113,6 +157,7 @@ export async function onRequestPost(context) {
   }
   if (!results) {
     mode = 'keyword'
+    vectorBackend = null
     results = rankByKeyword(question, corpus).slice(0, TOP_K)
   }
   const publicResults = results.map((r) => ({
@@ -135,6 +180,7 @@ export async function onRequestPost(context) {
       demo: true,
       mode,
       embed_model: mode === 'keyword' ? null : EMBED_MODEL,
+      vector_backend: vectorBackend,
       results: publicResults,
       ...t,
       notice: budgetOk ? undefined : '오늘의 라이브 답변 예산이 소진되어 발췌 답변을 표시합니다.',
@@ -166,6 +212,7 @@ export async function onRequestPost(context) {
       demo: false,
       mode,
       embed_model: mode === 'keyword' ? null : EMBED_MODEL,
+      vector_backend: vectorBackend,
       usage: r.usage,
       llm_model: r.model,
       results: publicResults,
@@ -179,6 +226,7 @@ export async function onRequestPost(context) {
       demo: true,
       mode,
       embed_model: mode === 'keyword' ? null : EMBED_MODEL,
+      vector_backend: vectorBackend,
       results: publicResults,
       ...t,
       notice: `일시적인 AI 혼잡으로 발췌 답변을 표시합니다. (${err.message})`,

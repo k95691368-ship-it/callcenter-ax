@@ -128,7 +128,13 @@ export default function SearchPage() {
                 <span className="usage-note">
                   검색:{' '}
                   {result.mode === 'hybrid'
-                    ? `하이브리드 — ${result.embed_model} 벡터 + 키워드 RRF 융합`
+                    ? `하이브리드 — ${result.embed_model} 벡터 + 키워드 RRF 융합${
+                        result.vector_backend === 'vectorize'
+                          ? ' · Vectorize 사전 인덱스'
+                          : result.vector_backend === 'realtime'
+                            ? ' · 실시간 임베딩'
+                            : ''
+                      }`
                     : result.mode === 'vector'
                       ? `${result.embed_model} 임베딩 · 코사인 유사도`
                       : '키워드 랭킹 (임베딩 폴백)'}
