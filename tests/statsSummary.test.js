@@ -85,3 +85,16 @@ describe('liveEngine (엔진 분포)', () => {
     expect(s.ossCalls).toBe(2)
   })
 })
+
+describe('신뢰성 카운트 (폴백·보존 게이트)', () => {
+  it('fallback과 guarded 호출을 별도로 센다', () => {
+    const s = summarizeStats([
+      { endpoint: 'analyze', mode: 'live', calls: 5, avg_latency_ms: 3000 },
+      { endpoint: 'analyze', mode: 'fallback', calls: 2, avg_latency_ms: 4000 },
+      { endpoint: 'diarize', mode: 'guarded', calls: 1, avg_latency_ms: 2000 },
+    ])
+    expect(s.fallbackCalls).toBe(2)
+    expect(s.guardedCalls).toBe(1)
+    expect(s.liveCalls).toBe(5)
+  })
+})

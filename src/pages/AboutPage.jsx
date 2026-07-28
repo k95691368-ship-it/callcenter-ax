@@ -238,6 +238,16 @@ export default function AboutPage() {
             {stats.summary.ossCalls > 0 && (
               <span className="cat-badge cat-etc">오픈소스 모델 경유 {stats.summary.ossCalls}회</span>
             )}
+            {stats.summary.fallbackCalls > 0 && (
+              <span className="cat-badge cat-quality" title="AI 실패 시 데모로 우아하게 강등된 횟수 — 실패를 숨기지 않고 공개합니다">
+                폴백 발동 {stats.summary.fallbackCalls}회
+              </span>
+            )}
+            {stats.summary.guardedCalls > 0 && (
+              <span className="cat-badge cat-quality" title="원문 보존 게이트가 LLM 변형을 차단한 횟수">
+                보존 게이트 차단 {stats.summary.guardedCalls}회
+              </span>
+            )}
             <span className="usage-note">지금 이 순간의 실제 수치 (/api/cc/stats)</span>
           </div>
           <div className="req-table-wrap">

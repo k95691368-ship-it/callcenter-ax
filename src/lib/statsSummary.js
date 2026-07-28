@@ -30,12 +30,16 @@ export function summarizeStats(rows) {
   let liveCalls = 0
   let claudeCalls = 0
   let ossCalls = 0
+  let fallbackCalls = 0
+  let guardedCalls = 0
 
   for (const r of list) {
     const calls = Number(r.calls) || 0
     if (!r.endpoint || calls <= 0) continue
     total += calls
     if (isLiveMode(r.mode)) liveCalls += calls
+    if (r.mode === 'fallback') fallbackCalls += calls
+    if (r.mode === 'guarded') guardedCalls += calls
     const engine = liveEngine(r.mode)
     if (engine === 'claude') claudeCalls += calls
     else if (engine === 'oss') ossCalls += calls
@@ -73,6 +77,8 @@ export function summarizeStats(rows) {
     liveCalls,
     claudeCalls,
     ossCalls,
+    fallbackCalls,
+    guardedCalls,
     liveRatio: total ? Math.round((liveCalls / total) * 100) : 0,
     endpoints,
   }

@@ -17,9 +17,28 @@ const SAMPLE_QUESTIONS = [
   '미성년자가 결제한 소액결제 환불이 되나요?',
 ]
 
+// 내 문서를 브라우저에만 보관해 새로고침·재방문에도 유지한다 (서버 미저장 원칙 그대로)
+const CUSTOM_DOCS_KEY = 'cc-custom-docs'
+function loadCustomText() {
+  try {
+    return localStorage.getItem(CUSTOM_DOCS_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
 export default function SearchPage() {
   const [question, setQuestion] = useState(SAMPLE_QUESTIONS[0])
-  const [customText, setCustomText] = useState('')
+  const [customText, setCustomTextRaw] = useState(loadCustomText)
+  function setCustomText(v) {
+    setCustomTextRaw(v)
+    try {
+      if (v.trim()) localStorage.setItem(CUSTOM_DOCS_KEY, v)
+      else localStorage.removeItem(CUSTOM_DOCS_KEY)
+    } catch {
+      // 시크릿 모드 등 저장 불가 환경에서도 검색 흐름은 유지
+    }
+  }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
@@ -96,7 +115,16 @@ export default function SearchPage() {
             />
             <p className="result-empty-sub">
               붙여넣은 문서는 질문과 함께 실시간 임베딩되어 내장 규정 8건과 같은 코퍼스에서
-              검색됩니다 — 서버에 저장되지 않습니다.
+              검색됩니다 — 서버에 저장되지 않고, 이 브라우저에만 보관되어 다음 방문에도
+              유지됩니다.
+              {customText.trim() && (
+                <>
+                  {' '}
+                  <button type="button" className="preset-chip" onClick={() => setCustomText('')}>
+                    내 문서 비우기
+                  </button>
+                </>
+              )}
             </p>
           </details>
           <button type="submit" className="btn-primary" disabled={loading}>
