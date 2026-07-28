@@ -5,6 +5,7 @@ import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.js
 import GenProgress from '../components/GenProgress.jsx'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { MAX_RULE_SCORE, MAX_CUSTOM_MENTIONS } from '../lib/qaRules.js'
+import { usePersistentState } from '../lib/persist.js'
 
 const EMPTY_CUSTOM = Array.from({ length: MAX_CUSTOM_MENTIONS }, () => ({ label: '', keywords: '' }))
 
@@ -59,8 +60,9 @@ export default function QaPage() {
   }, [])
 
   const [copied, setCopied] = useState(false)
-  // 콜센터별 커스텀 체크리스트 — 라벨 + 키워드(쉼표 구분)를 서버 규칙 스캔에 합류시킨다
-  const [customRules, setCustomRules] = useState(EMPTY_CUSTOM)
+  // 콜센터별 커스텀 체크리스트 — 라벨 + 키워드(쉼표 구분)를 서버 규칙 스캔에 합류시킨다.
+  // 브라우저에만 보관되어 재방문에도 유지된다 (서버 미저장).
+  const [customRules, setCustomRules] = usePersistentState('cc-qa-custom', EMPTY_CUSTOM)
 
   function setCustomRule(i, field, value) {
     setCustomRules((rows) => rows.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)))

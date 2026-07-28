@@ -9,6 +9,7 @@ import { applyLexicon, buildCustomLexicon, MAX_CUSTOM_TERMS } from '../lib/domai
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { useRecorder } from '../lib/useRecorder.js'
 import { chunkAudioFile, bufferToB64, CHUNK_SECONDS, MAX_CHUNKS } from '../lib/audioChunk.js'
+import { usePersistentState } from '../lib/persist.js'
 
 const CHUNK_THRESHOLD_BYTES = 4 * 1024 * 1024
 const MODELS_LABEL = '@cf/openai/whisper-large-v3-turbo'
@@ -82,8 +83,10 @@ export default function SttPage() {
     return computeCer(refScript, altResult.text)
   }, [refScript, altResult])
 
-  // 우리 콜센터만의 오전사→정정 쌍 — 심사자가 도메인 튜닝을 직접 실험할 수 있다
-  const [customTerms, setCustomTerms] = useState(
+  // 우리 콜센터만의 오전사→정정 쌍 — 심사자가 도메인 튜닝을 직접 실험할 수 있다.
+  // 브라우저에만 보관되어 재방문에도 유지된다 (서버 미저장).
+  const [customTerms, setCustomTerms] = usePersistentState(
+    'cc-stt-lexicon',
     Array.from({ length: MAX_CUSTOM_TERMS }, () => ({ wrong: '', term: '' }))
   )
   function setCustomTerm(i, field, value) {
