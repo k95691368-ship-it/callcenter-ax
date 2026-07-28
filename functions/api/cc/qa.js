@@ -4,7 +4,15 @@ import { callClaudeTool, ensureContract, hasApiKey, CALL_SAFETY_RULES } from '..
 import { callWorkersJson, hasWorkersAi } from '../../_lib/workersLlm.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
-import { checkMentions, scanForbidden, agentLines, computeQaScore } from '../../../src/lib/qaRules.js'
+import {
+  checkMentions,
+  scanForbidden,
+  agentLines,
+  computeQaScore,
+  buildCustomMentions,
+  mentionRuleSet,
+  REQUIRED_MENTIONS,
+} from '../../../src/lib/qaRules.js'
 
 const MAX_CHARS = 8000
 
@@ -72,9 +80,12 @@ export async function onRequestPost(context) {
 
   const startedAt = Date.now()
 
-  // 1층: 규칙 기반 스캔 — 결정적이므로 데모·라이브 관계없이 항상 실제로 수행한다
+  // 1층: 규칙 기반 스캔 — 결정적이므로 데모·라이브 관계없이 항상 실제로 수행한다.
+  // 커스텀 체크리스트가 오면 40점을 내장+커스텀에 균등 재배분해 같은 만점을 유지한다.
+  const customs = buildCustomMentions(body?.custom_mentions)
+  const ruleSet = customs.length ? mentionRuleSet(customs) : REQUIRED_MENTIONS
   const agentText = agentLines(transcript)
-  const mentions = checkMentions(agentText)
+  const mentions = checkMentions(agentText, ruleSet)
   const findings = scanForbidden(agentText)
 
   const respond = (llm, extra = {}) => {

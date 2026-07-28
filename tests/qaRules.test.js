@@ -6,6 +6,8 @@ import {
   computeQaScore,
   MAX_RULE_SCORE,
   REQUIRED_MENTIONS,
+  buildCustomMentions,
+  mentionRuleSet,
 } from '../src/lib/qaRules.js'
 
 const GOOD_CALL = `상담사: 안녕하세요, 한빛텔레콤 상담사입니다. 통화 내용이 녹음됩니다.
@@ -100,5 +102,52 @@ describe('computeQaScore', () => {
   it('총점은 0 미만으로 내려가지 않는다', () => {
     const s = computeQaScore({ mentions: noneFound, findings: [{ deduct: 15 }], llm: { empathy: 0, clarity: 0, resolution: 0 } })
     expect(s.total).toBe(0)
+  })
+})
+
+describe('buildCustomMentions', () => {
+  it('유효한 입력을 정규화하고 최대 3개까지만 받는다', () => {
+    const built = buildCustomMentions([
+      { label: ' 청약철회 안내 ', keywords: ['청약철회', ' 14일 이내 ', ''] },
+      { label: '요금 고지', keywords: ['요금'] },
+      { label: '셋째', keywords: ['셋'] },
+      { label: '넷째', keywords: ['넷'] },
+    ])
+    expect(built).toHaveLength(3)
+    expect(built[0].label).toBe('청약철회 안내')
+    expect(built[0].keywords).toEqual(['청약철회', '14일 이내'])
+    expect(built[0].custom).toBe(true)
+  })
+
+  it('라벨이나 키워드가 비면 그 항목은 버린다 (비배열 입력도 안전)', () => {
+    expect(buildCustomMentions([{ label: '', keywords: ['a'] }, { label: 'x', keywords: [] }])).toEqual([])
+    expect(buildCustomMentions(null)).toEqual([])
+    expect(buildCustomMentions('오염된 입력')).toEqual([])
+  })
+})
+
+describe('mentionRuleSet', () => {
+  it('커스텀을 합쳐도 규칙 총점은 항상 40점이다', () => {
+    const set = mentionRuleSet(buildCustomMentions([{ label: '추가', keywords: ['추가'] }]))
+    expect(set).toHaveLength(6)
+    expect(set.reduce((s, m) => s + m.points, 0)).toBe(MAX_RULE_SCORE)
+  })
+
+  it('커스텀 없이 호출하면 내장 5개 그대로 8점씩이다', () => {
+    const set = mentionRuleSet()
+    expect(set).toHaveLength(5)
+    expect(set.every((m) => m.points === 8)).toBe(true)
+  })
+})
+
+describe('checkMentions 커스텀 키워드 판정', () => {
+  it('커스텀 규칙은 키워드 포함으로 찾고, 내장 규칙은 정규식으로 찾는다', () => {
+    const set = mentionRuleSet(buildCustomMentions([{ label: '청약철회 안내', keywords: ['청약철회'] }]))
+    const res = checkMentions('안녕하세요. 청약철회는 14일 이내 가능합니다.', set)
+    const custom = res.find((m) => m.custom)
+    expect(custom.found).toBe(true)
+    expect(res.find((m) => m.id === 'greeting').found).toBe(true)
+    const miss = checkMentions('요금 안내입니다.', set).find((m) => m.custom)
+    expect(miss.found).toBe(false)
   })
 })

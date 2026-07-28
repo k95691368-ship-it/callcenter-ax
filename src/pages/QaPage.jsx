@@ -4,7 +4,9 @@ import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
-import { MAX_RULE_SCORE } from '../lib/qaRules.js'
+import { MAX_RULE_SCORE, MAX_CUSTOM_MENTIONS } from '../lib/qaRules.js'
+
+const EMPTY_CUSTOM = Array.from({ length: MAX_CUSTOM_MENTIONS }, () => ({ label: '', keywords: '' }))
 
 const GEN_STEPS = [
   '필수 안내 멘트 이행을 규칙으로 스캔하고 있어요',
@@ -57,6 +59,18 @@ export default function QaPage() {
   }, [])
 
   const [copied, setCopied] = useState(false)
+  // 콜센터별 커스텀 체크리스트 — 라벨 + 키워드(쉼표 구분)를 서버 규칙 스캔에 합류시킨다
+  const [customRules, setCustomRules] = useState(EMPTY_CUSTOM)
+
+  function setCustomRule(i, field, value) {
+    setCustomRules((rows) => rows.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)))
+  }
+
+  function customPayload() {
+    return customRules
+      .filter((r) => r.label.trim() && r.keywords.trim())
+      .map((r) => ({ label: r.label, keywords: r.keywords.split(',').map((k) => k.trim()).filter(Boolean) }))
+  }
 
   // QA 점수표를 코칭 공유용 텍스트로 복사한다
   async function copyResult() {
@@ -86,7 +100,11 @@ export default function QaPage() {
     setLoading(true)
     setError('')
     try {
-      const data = await postJson('/api/cc/qa', { transcript: text })
+      const custom = customPayload()
+      const data = await postJson('/api/cc/qa', {
+        transcript: text,
+        ...(custom.length ? { custom_mentions: custom } : {}),
+      })
       setResult(data)
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     } catch (err) {
@@ -124,6 +142,30 @@ export default function QaPage() {
               샘플: 모범 응대
             </button>
           </div>
+          <details className="custom-docs qa-custom">
+            <summary>+ 체크리스트 커스터마이즈 — 우리 콜센터만의 필수 멘트 추가 (최대 {MAX_CUSTOM_MENTIONS}개)</summary>
+            <p className="result-empty-sub">
+              콜센터마다 QA 기준이 다릅니다. 항목 이름과 감지 키워드(쉼표 구분)를 넣으면 규칙 40점이
+              내장 5개 + 커스텀 항목에 균등 재배분되어 함께 평가됩니다.
+            </p>
+            {customRules.map((r, i) => (
+              <div className="qa-custom-row" key={i}>
+                <input
+                  type="text"
+                  placeholder={`항목 이름 (예: 청약철회 안내)`}
+                  value={r.label}
+                  maxLength={30}
+                  onChange={(e) => setCustomRule(i, 'label', e.target.value)}
+                />
+                <input
+                  type="text"
+                  placeholder="감지 키워드, 쉼표 구분 (예: 청약철회, 14일 이내)"
+                  value={r.keywords}
+                  onChange={(e) => setCustomRule(i, 'keywords', e.target.value)}
+                />
+              </div>
+            ))}
+          </details>
           <button type="submit" className="btn-primary" disabled={loading}>
             {loading ? '평가 중... (10~30초)' : '품질 평가하기'}
           </button>
@@ -178,6 +220,7 @@ export default function QaPage() {
                     <li key={m.id} className={m.found ? 'ok' : 'miss'}>
                       <span className="qa-check-mark">{m.found ? '✓' : '✗'}</span>
                       <span>
+                        {m.custom && <span className="chip mine-chip">커스텀</span>}
                         <strong>{m.label}</strong> ({m.points}점) — 예: {m.example}
                       </span>
                     </li>

@@ -1669,6 +1669,33 @@
   color: var(--green-600);
 }
 
+/* ===== QA 커스텀 체크리스트 ===== */
+.qa-custom-row {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.qa-custom-row input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.qa-custom-row input:focus {
+  outline: none;
+  border-color: var(--blue-600);
+}
+
+@media (max-width: 700px) {
+  .qa-custom-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ===== 마감 디테일: 오디오 미리듣기·복사·404 ===== */
 .stt-audio {
   width: 100%;

@@ -42,6 +42,43 @@ export const REQUIRED_MENTIONS = [
 
 export const MAX_RULE_SCORE = REQUIRED_MENTIONS.reduce((s, m) => s + m.points, 0)
 
+export const MAX_CUSTOM_MENTIONS = 3
+
+// 사용자 입력({label, keywords[]})을 검증·정규화해 커스텀 멘트 규칙으로 만든다.
+// 콜센터마다 다른 QA 기준(예: 가입 상담의 "청약철회 안내")을 심사자가 직접 실험할 수 있다.
+export function buildCustomMentions(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const r of raw.slice(0, MAX_CUSTOM_MENTIONS)) {
+    const label = typeof r?.label === 'string' ? r.label.trim().slice(0, 30) : ''
+    const keywords = (Array.isArray(r?.keywords) ? r.keywords : [])
+      .map((k) => (typeof k === 'string' ? k.trim().slice(0, 20) : ''))
+      .filter(Boolean)
+      .slice(0, 5)
+    if (!label || keywords.length === 0) continue
+    out.push({
+      id: `custom-${out.length + 1}`,
+      label,
+      custom: true,
+      example: keywords.map((k) => `"${k}"`).join(', '),
+      keywords,
+    })
+  }
+  return out
+}
+
+// 내장+커스텀 멘트에 규칙 점수 40점을 균등 재배분한다 (합계는 항상 MAX_RULE_SCORE 유지)
+export function mentionRuleSet(customs = []) {
+  const all = [...REQUIRED_MENTIONS, ...customs]
+  const per = Math.floor(MAX_RULE_SCORE / all.length)
+  let remainder = MAX_RULE_SCORE - per * all.length
+  return all.map((m) => {
+    const bonus = remainder > 0 ? 1 : 0
+    if (remainder > 0) remainder -= 1
+    return { ...m, points: per + bonus }
+  })
+}
+
 // 금지 표현 규칙 — 발견 건당 감점. 목록은 데모용 요약이며 실제 QA 기준 전체를 대체하지 않는다.
 export const FORBIDDEN_RULES = [
   {
@@ -79,14 +116,16 @@ export const FORBIDDEN_RULES = [
 ]
 
 // 상담사 발화만 대상으로 필수 멘트 이행 여부를 점검한다.
-export function checkMentions(text) {
+// 내장 규칙은 정규식, 커스텀 규칙은 키워드 포함 여부로 판정한다.
+export function checkMentions(text, ruleSet = REQUIRED_MENTIONS) {
   const t = text || ''
-  return REQUIRED_MENTIONS.map((m) => ({
+  return ruleSet.map((m) => ({
     id: m.id,
     label: m.label,
     points: m.points,
     example: m.example,
-    found: m.patterns.some((p) => p.test(t)),
+    ...(m.custom ? { custom: true } : {}),
+    found: m.patterns ? m.patterns.some((p) => p.test(t)) : m.keywords.some((k) => t.includes(k)),
   }))
 }
 
