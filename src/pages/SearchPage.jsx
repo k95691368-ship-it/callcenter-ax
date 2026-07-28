@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
-import { UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 
 const GEN_STEPS = [
@@ -96,6 +96,7 @@ export default function SearchPage() {
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <UsageNote usage={result.usage} />
+                <OssLlmNote model={result.llm_model} />
                 <span className="usage-note">
                   검색:{' '}
                   {result.mode === 'vector'

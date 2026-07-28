@@ -25,6 +25,19 @@ export function WorkersAiNote({ model, latencyMs }) {
   )
 }
 
+// 오픈소스 LLM 폴백으로 생성된 라이브 결과 표시 (Claude 키 등록 시 Opus 4.8로 자동 상향)
+export function OssLlmNote({ model }) {
+  if (!model) return null
+  return (
+    <span
+      className="usage-note oss-note"
+      title="Cloudflare Workers AI의 오픈소스 LLM으로 라이브 생성된 결과입니다. CLAUDE_API_KEY 등록 시 Claude Opus 4.8로 자동 상향됩니다."
+    >
+      오픈소스 LLM 라이브 · {model.replace('@cf/meta/', '')}
+    </span>
+  )
+}
+
 export function ResultNotice({ text }) {
   if (!text) return null
   return <p className="result-notice">{text}</p>

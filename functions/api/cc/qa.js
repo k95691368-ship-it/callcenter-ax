@@ -1,6 +1,7 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { callClaudeTool, ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
+import { callWorkersJson, hasWorkersAi } from '../../_lib/workersLlm.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { checkMentions, scanForbidden, agentLines, computeQaScore } from '../../../src/lib/qaRules.js'
@@ -81,7 +82,10 @@ export async function onRequestPost(context) {
     return json({ mentions, findings, score, ...extra })
   }
 
-  if (!hasApiKey(env)) {
+  const canClaude = hasApiKey(env)
+  const canWorkers = hasWorkersAi(env)
+
+  if (!canClaude && !canWorkers) {
     const demo = demoLlmReview(mentions, findings)
     logCall(context, { endpoint: 'qa', mode: 'demo', startedAt, findingsCount: findings.length })
     return respond(demo, { demo: true, comments: demo.comments, coaching: demo.coaching })
@@ -104,22 +108,39 @@ export async function onRequestPost(context) {
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   try {
-    const { input: result, usage } = await callClaudeTool(env, {
-      system: SYSTEM,
-      user: `[통화 전사]\n${transcript}\n\n[규칙 스캔 결과 참고]\n필수 멘트 이행: ${mentions
-        .map((m) => `${m.label}=${m.found ? 'O' : 'X'}`)
-        .join(', ')}\n금지 표현: ${findings.length ? findings.map((f) => `"${f.word}"`).join(', ') : '없음'}\n\n상담사 응대 품질을 평가해 기록하세요.`,
-      tool: TOOL,
-      maxTokens: 2048,
-    })
+    const userPrompt = `[통화 전사]\n${transcript}\n\n[규칙 스캔 결과 참고]\n필수 멘트 이행: ${mentions
+      .map((m) => `${m.label}=${m.found ? 'O' : 'X'}`)
+      .join(', ')}\n금지 표현: ${findings.length ? findings.map((f) => `"${f.word}"`).join(', ') : '없음'}\n\n상담사 응대 품질을 평가해 기록하세요.`
+    let result
+    let usage = null
+    let llmModel = null
+    if (canClaude) {
+      const r = await callClaudeTool(env, { system: SYSTEM, user: userPrompt, tool: TOOL, maxTokens: 2048 })
+      result = r.input
+      usage = r.usage
+    } else {
+      const r = await callWorkersJson(env, {
+        system: `${SYSTEM}\n\nJSON 스키마: {"empathy":0~20 정수,"clarity":0~20 정수,"resolution":0~20 정수,"comments":["근거 2~4개"],"coaching":"한 줄"}`,
+        user: userPrompt,
+        maxTokens: 1024,
+      })
+      result = r.input
+      llmModel = r.model
+    }
     ensureContract(result, { arrays: ['comments'], strings: ['coaching'] })
     const llm = {
       empathy: clampScore(result.empathy),
       clarity: clampScore(result.clarity),
       resolution: clampScore(result.resolution),
     }
-    logCall(context, { endpoint: 'qa', mode: 'live', startedAt, usage, findingsCount: findings.length })
-    return respond(llm, { demo: false, usage, comments: result.comments.slice(0, 4), coaching: result.coaching })
+    logCall(context, { endpoint: 'qa', mode: canClaude ? 'live' : 'live-oss', startedAt, usage, findingsCount: findings.length })
+    return respond(llm, {
+      demo: false,
+      usage,
+      llm_model: llmModel,
+      comments: result.comments.slice(0, 4),
+      coaching: result.coaching,
+    })
   } catch (err) {
     const demo = demoLlmReview(mentions, findings)
     logCall(context, { endpoint: 'qa', mode: 'fallback', startedAt, findingsCount: findings.length })

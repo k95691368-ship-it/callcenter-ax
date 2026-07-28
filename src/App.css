@@ -1477,3 +1477,12 @@
   color: var(--ink-500);
   margin-bottom: 20px;
 }
+
+.oss-note {
+  background: var(--green-050);
+  color: var(--green-600);
+  border-radius: 999px;
+  padding: 5px 13px;
+  font-weight: 700;
+  font-size: 12px;
+}

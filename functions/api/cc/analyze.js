@@ -1,6 +1,7 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { callClaudeTool, ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
+import { callWorkersJson, hasWorkersAi } from '../../_lib/workersLlm.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 
@@ -101,7 +102,11 @@ export async function onRequestPost(context) {
 
   const startedAt = Date.now()
 
-  if (!hasApiKey(env)) {
+  // 라이브 사다리: Claude(키 등록 시) → 오픈소스 LLM(Workers AI) → 규칙 기반 데모
+  const canClaude = hasApiKey(env)
+  const canWorkers = hasWorkersAi(env)
+
+  if (!canClaude && !canWorkers) {
     logCall(context, { endpoint: 'analyze', mode: 'demo', startedAt })
     return json(demoAnalyze(transcript))
   }
@@ -117,19 +122,31 @@ export async function onRequestPost(context) {
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   try {
-    const { input: result, usage } = await callClaudeTool(env, {
-      system: SYSTEM,
-      user: `[콜센터 통화 전사]\n${transcript}\n\n위 통화를 분석해 기록하세요.`,
-      tool: TOOL,
-      maxTokens: 2048,
-    })
+    const userPrompt = `[콜센터 통화 전사]\n${transcript}\n\n위 통화를 분석해 기록하세요.`
+    let result
+    let usage = null
+    let llmModel = null
+    if (canClaude) {
+      const r = await callClaudeTool(env, { system: SYSTEM, user: userPrompt, tool: TOOL, maxTokens: 2048 })
+      result = r.input
+      usage = r.usage
+    } else {
+      const r = await callWorkersJson(env, {
+        system: `${SYSTEM}\n\nJSON 스키마: {"category":"가입|해지|요금|불만|기타","summary":["3줄"],"sentiment":"긍정|중립|부정|강성","sentiment_reason":"...","intent_keywords":["..."],"actions":["..."],"escalate":true|false,"escalate_reason":"...또는 null"}`,
+        user: userPrompt,
+        maxTokens: 1024,
+      })
+      result = r.input
+      llmModel = r.model
+    }
     ensureContract(result, {
       arrays: ['summary', 'intent_keywords', 'actions'],
       strings: ['category', 'sentiment'],
     })
     result.summary = result.summary.slice(0, 3)
-    logCall(context, { endpoint: 'analyze', mode: 'live', startedAt, usage })
-    return json({ demo: false, usage, ...result })
+    result.escalate = Boolean(result.escalate)
+    logCall(context, { endpoint: 'analyze', mode: canClaude ? 'live' : 'live-oss', startedAt, usage })
+    return json({ demo: false, usage, llm_model: llmModel, ...result })
   } catch (err) {
     logCall(context, { endpoint: 'analyze', mode: 'fallback', startedAt })
     return json({ ...demoAnalyze(transcript), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })

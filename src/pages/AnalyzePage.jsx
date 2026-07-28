@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
-import { UsageNote, ResultNotice } from '../components/ResultMeta.jsx'
+import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { saveMyCall } from '../lib/myCalls.js'
@@ -131,6 +131,7 @@ export default function AnalyzePage() {
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <UsageNote usage={result.usage} />
+                <OssLlmNote model={result.llm_model} />
               </div>
 
               <div className="chip-row analysis-badges">
