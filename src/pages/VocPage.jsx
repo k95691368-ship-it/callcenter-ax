@@ -5,6 +5,7 @@ import { loadMyCalls, clearMyCalls } from '../lib/myCalls.js'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
+import { buildVocCsv } from '../lib/vocCsv.js'
 
 // 감정 축은 순서형(긍정→강성)이므로 단일 색조의 순차 램프로 칠한다 (무지개 금지)
 const SENTIMENT_RAMP = { 긍정: '#cfe1fc', 중립: '#8fbafa', 부정: '#4593fc', 강성: '#1b64da' }
@@ -88,6 +89,17 @@ export default function VocPage() {
   const [reporting, setReporting] = useState(false)
   const [reportError, setReportError] = useState('')
 
+  // 통화 원장을 CSV로 내려받는다 (엑셀 한글 호환 BOM 포함, 브라우저 내 처리)
+  function downloadCsv() {
+    const blob = new Blob(['\ufeff' + buildVocCsv(calls)], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `voc-리포트-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   async function generateReport() {
     setReporting(true)
     setReportError('')
@@ -120,7 +132,10 @@ export default function VocPage() {
             </>
           )}
           을 유형·감정·일별로 집계했습니다. <Link to="/analyze">통화 분석</Link>을 돌릴 때마다 이
-          대시보드에 실시간으로 누적됩니다 (브라우저에만 저장, 서버 미전송).
+          대시보드에 실시간으로 누적됩니다 (브라우저에만 저장, 서버 미전송).{' '}
+          <button type="button" className="preset-chip" onClick={downloadCsv}>
+            ⬇ CSV 내보내기 (엑셀 호환)
+          </button>
           {myCalls.length > 0 && (
             <>
               {' '}
