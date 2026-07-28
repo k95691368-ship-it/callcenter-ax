@@ -1669,6 +1669,27 @@
   color: var(--green-600);
 }
 
+/* ===== 일괄 분석 ===== */
+.batch-section {
+  margin-top: 28px;
+}
+
+.batch-textarea {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  resize: vertical;
+  margin-bottom: 12px;
+}
+
+.batch-textarea:focus {
+  outline: none;
+  border-color: var(--blue-600);
+}
+
 /* ===== 실시간 상담 지원 ===== */
 .assist-suggestion {
   background: var(--blue-050);

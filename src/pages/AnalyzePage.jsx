@@ -6,6 +6,11 @@ import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.js
 import GenProgress from '../components/GenProgress.jsx'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { saveMyCall } from '../lib/myCalls.js'
+import { splitCalls, MAX_BATCH_CALLS } from '../lib/batchSplit.js'
+
+const BATCH_SAMPLE = [SAMPLE_CALLS[0], SAMPLE_CALLS[2], SAMPLE_CALLS[7]]
+  .map((c) => c.transcript)
+  .join('\n\n')
 
 const GEN_STEPS = [
   '통화 내용을 읽고 문의 유형을 분류하고 있어요',
@@ -101,6 +106,44 @@ export default function AnalyzePage() {
   function sendToQa() {
     sessionStorage.setItem('cc-transcript', text)
     navigate('/qa')
+  }
+
+  // 일괄 분석 — 여러 통화를 LLM 호출 1회로 함께 구조화 (단건 처리 한계 돌파)
+  const [batchText, setBatchText] = useState(BATCH_SAMPLE)
+  const [batchLoading, setBatchLoading] = useState(false)
+  const [batchResult, setBatchResult] = useState(null)
+  const [batchSaved, setBatchSaved] = useState(false)
+
+  async function analyzeBatch() {
+    const parts = splitCalls(batchText)
+    if (parts.length < 2) {
+      setError('일괄 분석은 통화 2건 이상부터 가능합니다. 통화 사이를 빈 줄로 구분해주세요.')
+      return
+    }
+    setBatchLoading(true)
+    setError('')
+    setBatchSaved(false)
+    try {
+      const data = await postJson('/api/cc/analyze-batch', { transcripts: parts })
+      setBatchResult({ ...data, inputs: parts })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBatchLoading(false)
+    }
+  }
+
+  function saveBatchToVoc() {
+    if (!batchResult) return
+    batchResult.calls.forEach((c, i) => {
+      saveMyCall({
+        title: (batchResult.inputs[i] || '').replace(/^(상담사|고객)\s*[:：]\s*/, '').split('\n')[0],
+        category: c.category,
+        sentiment: c.sentiment,
+        escalate: c.escalate,
+      })
+    })
+    setBatchSaved(true)
   }
 
   return (
@@ -217,6 +260,73 @@ export default function AnalyzePage() {
           )}
         </div>
       </div>
+
+      <section className="about-section batch-section">
+        <h2>일괄 분석 — 여러 통화를 LLM 호출 1회로</h2>
+        <p className="about-note">
+          상담 후처리는 건별이 아니라 묶음으로 흐릅니다. 통화 사이를 빈 줄로 구분해 최대{' '}
+          {MAX_BATCH_CALLS}건까지 붙여넣으면 <strong>한 번의 호출</strong>로 전부 분류·요약됩니다
+          (샘플 3건이 채워져 있어요).
+        </p>
+        <textarea
+          className="batch-textarea"
+          value={batchText}
+          onChange={(e) => setBatchText(e.target.value)}
+          rows={8}
+          aria-label="일괄 분석할 통화들"
+        />
+        <div className="hub-cta result-actions">
+          <button type="button" className="btn-primary" onClick={analyzeBatch} disabled={batchLoading}>
+            {batchLoading ? '일괄 분석 중... (10~30초)' : `일괄 분석하기 (${splitCalls(batchText).length}건)`}
+          </button>
+          {batchResult && (
+            <button type="button" className="btn-ghost" onClick={saveBatchToVoc} disabled={batchSaved}>
+              {batchSaved ? '✓ VOC에 누적됨' : 'VOC 대시보드에 일괄 누적'}
+            </button>
+          )}
+        </div>
+        {batchResult && (
+          <>
+            <ResultNotice text={batchResult.notice} />
+            <div className="result-toolbar">
+              {batchResult.demo && <DemoBadge />}
+              <UsageNote usage={batchResult.usage} />
+              <OssLlmNote model={batchResult.llm_model} />
+              {!batchResult.demo && (
+                <span className="usage-note">{batchResult.calls.length}건을 호출 1회로 처리</span>
+              )}
+            </div>
+            <div className="req-table-wrap">
+              <table className="req-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>유형</th>
+                    <th>감정</th>
+                    <th>한 줄 요약</th>
+                    <th>에스컬레이션</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batchResult.calls.map((c, i) => (
+                    <tr key={i}>
+                      <td className="req-name">{i + 1}</td>
+                      <td>
+                        <span className={`cat-badge ${CATEGORY_COLOR[c.category] || 'cat-etc'}`}>{c.category}</span>
+                      </td>
+                      <td>
+                        <span className={`cat-badge ${SENTIMENT_COLOR[c.sentiment] || 'cat-etc'}`}>{c.sentiment}</span>
+                      </td>
+                      <td className="req-basis">{c.summary}</td>
+                      <td>{c.escalate ? <span className="escalate-badge" title={c.escalate_reason}>⚠ 필요</span> : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
     </div>
   )
 }
