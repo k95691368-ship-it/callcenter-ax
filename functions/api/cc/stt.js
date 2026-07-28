@@ -62,8 +62,9 @@ export async function onRequestPost(context) {
   if (!(await checkRateLimit(env, 'cc:daily:all', 300, 86400)))
     return errorJson('오늘의 전사 예산이 소진되었습니다. 내일 다시 시도해주세요.', 429)
   const ip = clientIp(request)
-  if (!(await checkRateLimit(env, `cc:stt:${ip}`, 10, 3600)))
-    return errorJson('녹취 전사는 시간당 10회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
+  // 장시간 분할 전사(청크 최대 30개)가 한 번에 완주할 수 있도록 상한을 맞춘다
+  if (!(await checkRateLimit(env, `cc:stt:${ip}`, 30, 3600)))
+    return errorJson('녹취 전사는 시간당 30회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
   if (!(await checkRateLimit(env, 'cc:stt:all', 60, 3600)))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 

@@ -8,6 +8,10 @@ import { computeCer } from '../lib/cer.js'
 import { applyLexicon, buildCustomLexicon, MAX_CUSTOM_TERMS } from '../lib/domainLexicon.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { useRecorder } from '../lib/useRecorder.js'
+import { chunkAudioFile, bufferToB64, CHUNK_SECONDS, MAX_CHUNKS } from '../lib/audioChunk.js'
+
+const CHUNK_THRESHOLD_BYTES = 4 * 1024 * 1024
+const MODELS_LABEL = '@cf/openai/whisper-large-v3-turbo'
 
 const GEN_STEPS = [
   '음성 파일을 서버로 전송하고 있어요',
@@ -96,17 +100,55 @@ export default function SttPage() {
     return computeCer(refScript, corrected.text)
   }, [refScript, corrected])
 
+  // 장시간 녹취 분할 전사 — 6MB·단발 호출 한계를 클라이언트 분할로 돌파한다
+  const [chunkNote, setChunkNote] = useState('')
+  async function transcribeLong(theFile) {
+    setLoading(true)
+    setError('')
+    setAltResult(null)
+    try {
+      setChunkNote('긴 녹취를 디코딩·분할하고 있어요 (16kHz 모노 리샘플)...')
+      const chunks = await chunkAudioFile(theFile)
+      if (chunks.length > MAX_CHUNKS)
+        throw new Error(`약 ${Math.round((MAX_CHUNKS * CHUNK_SECONDS) / 60)}분(청크 ${MAX_CHUNKS}개) 이하 녹취까지 지원합니다.`)
+      const texts = []
+      const startedAt = Date.now()
+      for (let i = 0; i < chunks.length; i++) {
+        setChunkNote(`청크 ${i + 1}/${chunks.length} 전사 중 (${Math.round(chunks[i].start)}~${Math.round(chunks[i].end)}초)...`)
+        const r = await postJson('/api/cc/stt', { audio_b64: bufferToB64(chunks[i].wav) })
+        texts.push((r.text || '').trim())
+      }
+      setResult({
+        demo: false,
+        text: texts.filter(Boolean).join(' '),
+        model: `${MODELS_LABEL} · 분할 전사 ${chunks.length}청크`,
+        latency: Date.now() - startedAt,
+        chunked: chunks.length,
+      })
+      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    } catch (err) {
+      setError(err.name === 'EncodingError' ? '이 형식은 브라우저가 디코드하지 못했습니다. mp3/wav/m4a로 시도해주세요.' : err.message)
+    } finally {
+      setLoading(false)
+      setChunkNote('')
+    }
+  }
+
   async function runTranscribe(theFile, withCompare) {
     if (!theFile) {
       setError('음성 파일을 선택하거나 마이크로 녹음해주세요.')
       return
     }
-    if (theFile.size > MAX_FILE_BYTES) {
-      setError('파일이 너무 큽니다. 6MB 이하의 음성 파일을 올려주세요.')
-      return
-    }
     if (withCompare && theFile.size > MAX_COMPARE_BYTES) {
       setError('모델 비교는 2MB 이하의 짧은 음성으로만 가능합니다. 비교를 끄거나 짧게 녹음해주세요.')
+      return
+    }
+    // 6MB를 넘는 긴 녹취는 오류가 아니라 분할 전사로 자동 전환한다
+    if (!withCompare && theFile.size > CHUNK_THRESHOLD_BYTES) {
+      return transcribeLong(theFile)
+    }
+    if (theFile.size > MAX_FILE_BYTES) {
+      setError('모델 비교 모드에서는 6MB 이하 파일만 가능합니다.')
       return
     }
     setLoading(true)
@@ -238,7 +280,7 @@ export default function SttPage() {
             </div>
 
             <label>
-              또는 음성 파일 선택 (mp3/wav/m4a/ogg · 6MB 이하)
+              또는 음성 파일 선택 (mp3/wav/m4a/ogg · 6MB 초과 긴 녹취는 자동 분할 전사, 최대 약 27분)
               <input
                 type="file"
                 accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm"
@@ -297,7 +339,13 @@ export default function SttPage() {
               </p>
             </div>
           )}
-          {loading && <GenProgress steps={GEN_STEPS} />}
+          {loading && !chunkNote && <GenProgress steps={GEN_STEPS} />}
+          {loading && chunkNote && (
+            <div className="result-empty">
+              <p>장시간 녹취 분할 전사 진행 중</p>
+              <p className="result-empty-sub">{chunkNote}</p>
+            </div>
+          )}
           {tab === 'file' && result && !loading && (
             <>
               <ResultNotice text={result.notice} />
