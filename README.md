@@ -24,11 +24,12 @@
 
 | 화면 | 공고 담당업무 | 동작 방식 |
 |---|---|---|
-| [/stt](https://callcenter-ax.pages.dev/stt) | 오픈소스 STT 적용·**성능 평가·도메인 튜닝** | **Whisper large-v3-turbo** 전사(마이크 녹음·파일·내장 샘플) + **CER 측정** + **2종 모델 비교** + 도메인 용어 보정(전/후 CER 개선 표시) + LLM 화자 분리 |
-| [/analyze](https://callcenter-ax.pages.dev/analyze) | 분류·요약·**의도 분석** | 유형/3줄 요약/감정/의도/조치 구조화 분석 + **에스컬레이션 판단**(법적·강성 건은 사람에게) |
-| [/qa](https://callcenter-ax.pages.dev/qa) | **Auto QA** | 필수 멘트 체크(40점)·금지 표현 감점(규칙, 항상 실동작) + LLM 정성 평가(60점) 이중 구조 + **콜센터별 커스텀 체크리스트**(40점 균등 재배분) |
+| [/stt](https://callcenter-ax.pages.dev/stt) | 오픈소스 STT 적용·**성능 평가·도메인 튜닝** | **Whisper large-v3-turbo** 전사(마이크·파일·샘플) + **장시간 녹취 자동 분할 전사(~27분)** + **CER 측정** + **2종 모델 비교** + 도메인 용어 보정(커스텀 사전 실험 포함) + LLM 화자 분리 |
+| [/analyze](https://callcenter-ax.pages.dev/analyze) | 분류·요약·**의도 분석** | 유형/3줄 요약/감정/의도/조치 구조화 분석 + **에스컬레이션 판단** + **일괄 분석**(통화 5건을 LLM 호출 1회로) |
+| [/qa](https://callcenter-ax.pages.dev/qa) | **Auto QA** | 필수 멘트 체크(40점)·금지 표현 감점 + LLM 정성 평가(60점, **행동 앵커 루브릭 + 일관성 밴드**) + **콜센터별 커스텀 체크리스트** |
 | [/voc](https://callcenter-ax.pages.dev/voc) | **VOC 분석** | 내장 10건 + 직접 분석 건 실시간 누적 집계(SVG 차트) + **AI 인사이트 리포트**(집계 수치만 전송) |
-| [/search](https://callcenter-ax.pages.dev/search) | **RAG 검색** | **하이브리드 검색**(bge-m3 벡터 + 키워드 랭킹 **RRF 융합**) → 근거 문단 강제 답변+인용. **내 문서 붙여넣기 실시간 인덱싱** |
+| [/search](https://callcenter-ax.pages.dev/search) | **RAG 검색** | **Vectorize 사전 인덱스**(벡터 DB) + 키워드 랭킹 **RRF 융합** 하이브리드 → 근거 문단 강제 답변+인용. **내 문서 실시간 인덱싱** |
+| [/assist](https://callcenter-ax.pages.dev/assist) | **신규 기능 연구·개발** | **실시간 상담 지원(Agent Assist)** — 진행 중 대화를 읽고 규정 RAG 검색 + 다음 응대 멘트 2안 + 에스컬레이션 주의 (직접 제안·구현한 신규 기능) |
 | [/about](https://callcenter-ax.pages.dev/about) | — | 공고 ↔ 구현 매핑표 · 구조도 · 라이브/데모 정직 구분표 · **실측 운영 지표**(D1 텔레메트리 집계: 호출 수·라이브 비율·평균 지연) |
 
 실측 예시: 테스트 음성(26자)을 turbo가 2.1초에 전사(CER 2.6%), base whisper는
@@ -77,17 +78,16 @@ Cloudflare Pages Functions  /api/cc/{stt, diarize, analyze, qa, search, voc-repo
 npm install
 npm run dev        # 프론트만 (API는 데모 폴백)
 npm run dev:full   # 빌드 + wrangler pages dev (Functions 포함)
-npm test           # vitest 96개 (QA 점수·커스텀 규칙·CER·도메인 보정·RRF 융합·계약 검증·폴백 사다리·운영 지표)
+npm test           # vitest 110개 (QA 점수·커스텀 규칙·CER·도메인 보정·RRF 융합·계약 검증·폴백 사다리·운영 지표)
 npm run lint       # oxlint
 git push           # Cloudflare Pages Git 연동 자동 빌드·배포 (wrangler.toml 바인딩 자동 적용)
 ```
 
-라이브 LLM을 Claude Opus 5로 상향(선택):
-`npx wrangler pages secret put CLAUDE_API_KEY --project-name callcenter-ax`
+Claude Opus 5는 현재 라이브로 가동 중이다 (시크릿 등록 완료).
 
 ## 문서
 
 - [기획안.md](기획안.md) — 회사·공고 분석 → 기능 매핑 → 기술 선택 이유
-- [개선기획안.md](개선기획안.md) — 이틀간의 배포 후 개선 사이클 15회 기록
+- [개선기획안.md](개선기획안.md) — 이틀간의 배포 후 개선 사이클 30회 기록
 - [docs/기능정리.md](docs/기능정리.md) — 전체 구현 기능 상세 설명
 - [docs/녹음스크립트.md](docs/녹음스크립트.md) — 내 목소리로 STT 시연용 대본 5종

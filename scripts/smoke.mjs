@@ -53,14 +53,16 @@ await check('정적 자산 (OG 이미지·샘플 음성·robots)', async () => {
   }
 })
 
-await check('빈 입력 검증 (400)', async () => {
-  const res = await fetch(`${BASE}/api/cc/analyze`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}',
-    signal: AbortSignal.timeout(15000),
-  })
-  if (res.status !== 400) throw new Error(`status ${res.status} (400이어야 함)`)
+await check('빈 입력 검증 (400) — analyze·assist·analyze-batch', async () => {
+  for (const ep of ['/api/cc/analyze', '/api/cc/assist', '/api/cc/analyze-batch']) {
+    const res = await fetch(`${BASE}${ep}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+      signal: AbortSignal.timeout(15000),
+    })
+    if (res.status !== 400) throw new Error(`${ep} → ${res.status} (400이어야 함)`)
+  }
 })
 
 console.log(`스모크 테스트 — ${BASE}`)
