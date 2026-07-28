@@ -63,7 +63,7 @@ export default function Layout() {
             <p className="footer-title">기술 스택</p>
             <p className="footer-text">
               React 19 · Vite · Cloudflare Pages Functions · Workers AI (Whisper·bge-m3) ·
-              Cloudflare D1 · Claude Opus 4.8 (tool 강제 호출로 구조화 응답)
+              Cloudflare D1 · Claude Opus 5 (tool 강제 호출로 구조화 응답)
             </p>
           </div>
         </div>

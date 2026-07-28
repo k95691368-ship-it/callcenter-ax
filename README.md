@@ -12,7 +12,7 @@
 | 화면 | 공고 담당업무 | 동작 방식 | 상태 |
 |---|---|---|---|
 | [/stt](https://callcenter-ax.pages.dev/stt) | 오픈소스 STT 적용·성능 평가 | Workers AI **Whisper large-v3-turbo** 전사 + **CER(문자 오류율)** 측정기 | **라이브** (키 불필요) |
-| [/analyze](https://callcenter-ax.pages.dev/analyze) | 분류·요약·의도 분석 | Claude Opus 4.8 tool 강제 호출 → 유형/3줄 요약/감정/의도/조치/에스컬레이션 | 키 등록 시 라이브, 미등록 시 규칙 기반 데모 |
+| [/analyze](https://callcenter-ax.pages.dev/analyze) | 분류·요약·의도 분석 | Claude Opus 5 tool 강제 호출 → 유형/3줄 요약/감정/의도/조치/에스컬레이션 | 키 등록 시 라이브, 미등록 시 규칙 기반 데모 |
 | [/qa](https://callcenter-ax.pages.dev/qa) | Auto QA | 필수 멘트 체크(40점) + 금지 표현 감점(규칙, **항상 실동작**) + LLM 정성 평가(60점) | 규칙 층 라이브 / LLM 층 키 필요 |
 | [/voc](https://callcenter-ax.pages.dev/voc) | VOC 분석 | 가상 통화 10건 집계 대시보드 (유형·감정·일별 SVG 차트) | 내장 샘플 |
 | [/search](https://callcenter-ax.pages.dev/search) | RAG 검색 | **bge-m3 임베딩** → 코사인 유사도 → 근거 문단 강제 답변 + 인용 표시 | 검색 라이브 / 답변 생성 키 필요 |
@@ -29,7 +29,7 @@
    ▼
 Cloudflare Pages Functions  /api/cc/{stt, analyze, qa, search}
    ├─ Workers AI  : Whisper large-v3-turbo (STT) · bge-m3 (임베딩)
-   ├─ Claude Opus 4.8 : tool 강제 호출 → ensureContract 응답 계약 검증
+   ├─ Claude Opus 5 : tool 강제 호출 → ensureContract 응답 계약 검증
    └─ D1 : 레이트리밋 버킷 · AI 호출 텔레메트리 (개인정보 미저장)
 ```
 

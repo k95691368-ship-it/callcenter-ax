@@ -1,12 +1,14 @@
-const MODEL = 'claude-opus-4-8'
+const MODEL = 'claude-opus-5'
 
 export function hasApiKey(env) {
   return Boolean(env.CLAUDE_API_KEY)
 }
 
 // tool 강제 호출로 구조화된 JSON을 받는 공용 헬퍼.
+// Opus 5는 thinking이 기본 활성화이고 max_tokens가 thinking+응답을 합산하므로
+// 호출부의 maxTokens에 여유를 두고, effort=medium으로 분류·요약 작업의 비용을 조절한다.
 // 반환값: { input: tool_use 블록의 input 객체, usage: 토큰 사용량 }
-export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096 }) {
+export async function callClaudeTool(env, { system, user, tool, maxTokens = 8192 }) {
   const apiKey = env.CLAUDE_API_KEY
   if (!apiKey) throw new Error('CLAUDE_API_KEY가 설정되지 않았습니다.')
 
@@ -23,6 +25,7 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = 4096
       body: JSON.stringify({
         model: MODEL,
         max_tokens: maxTokens,
+        output_config: { effort: 'medium' },
         system,
         messages: [{ role: 'user', content: user }],
         tools: [tool],

@@ -47,7 +47,7 @@ const LIVE_TABLE = [
   { feature: 'RAG 검색 (임베딩·유사도)', mode: '라이브', how: 'bge-m3 임베딩 + 코사인 유사도, 실패 시 키워드 랭킹 폴백' },
   { feature: 'QA 규칙 스캔 (멘트·금지 표현)', mode: '항상 실제 계산', how: '결정적 규칙 엔진 — 데모 모드에서도 진짜로 동작' },
   { feature: 'VOC 대시보드', mode: '항상 실제 계산', how: '내장 10건 + 직접 분석한 통화를 브라우저에 누적 집계 (서버 미전송)' },
-  { feature: 'LLM 분석·QA 정성 평가·RAG 답변', mode: '라이브', how: '오픈소스 LLM(Llama 3.3 70B, Workers AI) — CLAUDE_API_KEY 등록 시 Claude Opus 4.8로 자동 상향' },
+  { feature: 'LLM 분석·QA 정성 평가·RAG 답변', mode: '라이브', how: '오픈소스 LLM(Llama 3.3 70B, Workers AI) — CLAUDE_API_KEY 등록 시 Claude Opus 5로 자동 상향' },
 ]
 
 export default function AboutPage() {
@@ -134,7 +134,7 @@ export default function AboutPage() {
           </div>
           <div className="arch-row">
             <div className="arch-box">
-              <strong>Claude Opus 4.8</strong>
+              <strong>Claude Opus 5</strong>
               <span>tool 강제 호출 → 구조화 JSON → ensureContract 계약 검증</span>
             </div>
             <div className="arch-box">

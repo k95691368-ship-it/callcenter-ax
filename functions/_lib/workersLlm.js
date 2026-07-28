@@ -1,5 +1,5 @@
 // Workers AI 오픈소스 LLM 폴백 — CLAUDE_API_KEY가 없어도 라이브 AI 분석을 제공한다.
-// 서열: Claude Opus 4.8(키 등록 시) → 이 모듈(오픈소스 Llama, 키 불필요) → 규칙 기반 데모.
+// 서열: Claude Opus 5(키 등록 시) → 이 모듈(오픈소스 Llama, 키 불필요) → 규칙 기반 데모.
 // 공고의 "오픈소스 AI 모델 활용" 요건에 대응하는 층이기도 하다.
 
 export const WORKERS_LLM_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'

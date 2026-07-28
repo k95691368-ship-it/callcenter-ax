@@ -127,7 +127,7 @@ export async function onRequestPost(context) {
     let usage = null
     let llmModel = null
     if (canClaude) {
-      const r = await callClaudeTool(env, { system: SYSTEM, user: userPrompt, tool: TOOL, maxTokens: 2048 })
+      const r = await callClaudeTool(env, { system: SYSTEM, user: userPrompt, tool: TOOL, maxTokens: 6144 })
       result = r.input
       usage = r.usage
     } else {
