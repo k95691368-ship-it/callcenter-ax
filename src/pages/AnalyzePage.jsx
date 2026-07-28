@@ -213,7 +213,18 @@ export default function AnalyzePage() {
               {result.sentiment_reason && <p className="result-empty-sub">감정 판정 근거: {result.sentiment_reason}</p>}
 
               <section className="analysis-block">
-                <h2>3줄 요약</h2>
+                <h2>
+                  3줄 요약
+                  {typeof result.grounding === 'number' && (
+                    <span
+                      className="chip mine-chip"
+                      style={{ marginLeft: 8 }}
+                      title="요약 표현이 통화 원문과 겹치는 비율 — 지시가 아니라 검증으로 확인한 수치입니다."
+                    >
+                      원문 근거율 {Math.round(result.grounding * 100)}%
+                    </span>
+                  )}
+                </h2>
                 <ol className="plain-list">
                   {(result.summary || []).map((s, i) => (
                     <li key={i}>{s}</li>

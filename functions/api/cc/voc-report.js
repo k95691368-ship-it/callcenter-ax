@@ -5,6 +5,7 @@ import { hasWorkersAi } from '../../_lib/workersLlm.js'
 import { runLlmLadder } from '../../_lib/ladder.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
+import { verifyReportNumbers } from '../../../src/lib/reportNumbers.js'
 
 // VOC 집계를 LLM이 읽고 경영 보고용 인사이트 리포트를 쓴다 — "분석이 쌓여
 // 인사이트가 된다"의 마지막 단계. 개인 통화 내용이 아닌 집계 수치만 전달한다.
@@ -107,6 +108,8 @@ export async function onRequestPost(context) {
     })
     const result = r.input
     ensureContract(result, { arrays: ['findings', 'recommendations'], strings: ['headline'] })
+    // 숫자 검증 게이트 — 리포트 속 숫자가 실제 집계(또는 파생 퍼센트)에 존재하는지 대조
+    const numCheck = verifyReportNumbers([result.headline, ...result.findings], stats)
     logCall(context, { endpoint: 'voc-report', mode: r.engine === 'claude' ? 'live' : 'live-oss', startedAt, usage: r.usage })
     return json({
       demo: false,
@@ -115,6 +118,10 @@ export async function onRequestPost(context) {
       headline: result.headline,
       findings: result.findings.slice(0, 3),
       recommendations: result.recommendations.slice(0, 3),
+      numbers_verified: numCheck.ok,
+      ...(numCheck.ok
+        ? {}
+        : { notice: `리포트에 집계에 없는 수치(${numCheck.unknown.join(', ')})가 포함되어 있습니다 — 집계 원본과 대조해 확인해주세요.` }),
     })
   } catch (err) {
     logCall(context, { endpoint: 'voc-report', mode: 'fallback', startedAt })

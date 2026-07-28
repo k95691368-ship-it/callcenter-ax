@@ -5,6 +5,7 @@ import { hasWorkersAi } from '../../_lib/workersLlm.js'
 import { runLlmLadder } from '../../_lib/ladder.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
+import { groundedness } from '../../../src/lib/grounding.js'
 
 const MAX_CHARS = 8000
 
@@ -140,8 +141,10 @@ export async function onRequestPost(context) {
     })
     result.summary = result.summary.slice(0, 3)
     result.escalate = Boolean(result.escalate)
+    // 요약 근거율 — 3줄 요약의 표현이 통화 원문과 실제로 겹치는 비율 (투명 표시)
+    const grounding = groundedness(result.summary.join(' '), transcript)
     logCall(context, { endpoint: 'analyze', mode: r.engine === 'claude' ? 'live' : 'live-oss', startedAt, usage: r.usage })
-    return json({ demo: false, usage: r.usage, llm_model: r.model, ...result })
+    return json({ demo: false, usage: r.usage, llm_model: r.model, grounding, ...result })
   } catch (err) {
     logCall(context, { endpoint: 'analyze', mode: 'fallback', startedAt })
     return json({ ...demoAnalyze(transcript), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
