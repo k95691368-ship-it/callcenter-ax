@@ -86,6 +86,8 @@ export default function SttPage() {
   const [altResult, setAltResult] = useState(null)
   const [text, setText] = useState('')
   const [refScript, setRefScript] = useState('')
+  const [diarizing, setDiarizing] = useState(false)
+  const [diaMeta, setDiaMeta] = useState(null)
   const resultRef = useRef(null)
 
   const recorder = useRecorder({
@@ -169,6 +171,22 @@ export default function SttPage() {
       runTranscribe(f, true)
     } catch {
       setError('샘플 음성을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.')
+    }
+  }
+
+  // 화자 분리 — 통짜 전사를 상담사:/고객: 형식으로 재구성 (Auto QA 규칙 층 연결용)
+  async function diarize() {
+    if (!result?.text?.trim()) return
+    setDiarizing(true)
+    setError('')
+    try {
+      const data = await postJson('/api/cc/diarize', { transcript: result.text })
+      setResult({ ...result, text: data.formatted })
+      setDiaMeta(data)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDiarizing(false)
     }
   }
 
@@ -322,6 +340,15 @@ export default function SttPage() {
                 </div>
               )}
               {altResult?.failed && <ResultNotice text={altResult.notice} />}
+              {diaMeta && <ResultNotice text={diaMeta.notice} />}
+              <div className="batch-meta">
+                <button type="button" className="preset-chip" onClick={diarize} disabled={diarizing}>
+                  {diarizing ? '화자 분리 중...' : '👥 화자 분리 (상담사/고객 태깅)'}
+                </button>
+                {diaMeta && !diaMeta.demo && (
+                  <span className="usage-note">화자 분리 적용됨 — QA의 상담사 발화 평가가 정확해집니다</span>
+                )}
+              </div>
               <button type="button" className="btn-primary" onClick={sendToAnalyze}>
                 이 전사를 통화 분석으로 보내기 →
               </button>

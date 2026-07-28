@@ -1603,3 +1603,23 @@
   margin: 0;
   box-shadow: var(--shadow-card);
 }
+
+/* ===== VOC AI 리포트 ===== */
+.voc-report {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.voc-report-headline {
+  font-size: 16.5px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.voc-report strong {
+  font-size: 13px;
+  color: var(--ink-400);
+}

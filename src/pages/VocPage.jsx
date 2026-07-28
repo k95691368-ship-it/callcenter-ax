@@ -2,6 +2,9 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { SAMPLE_CALLS, CATEGORIES, SENTIMENTS } from '../lib/sampleCalls.js'
 import { loadMyCalls, clearMyCalls } from '../lib/myCalls.js'
+import { postJson } from '../lib/api.js'
+import DemoBadge from '../components/DemoBadge.jsx'
+import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
 
 // 감정 축은 순서형(긍정→강성)이므로 단일 색조의 순차 램프로 칠한다 (무지개 금지)
 const SENTIMENT_RAMP = { 긍정: '#cfe1fc', 중립: '#8fbafa', 부정: '#4593fc', 강성: '#1b64da' }
@@ -79,6 +82,30 @@ export default function VocPage() {
 
   const maxCat = Math.max(...agg.byCategory.map((c) => c.count), 1)
   const maxSent = Math.max(...agg.bySentiment.map((s) => s.count), 1)
+
+  // AI 인사이트 리포트 — 집계 수치만 서버로 보낸다 (통화 원문 미전송)
+  const [report, setReport] = useState(null)
+  const [reporting, setReporting] = useState(false)
+  const [reportError, setReportError] = useState('')
+
+  async function generateReport() {
+    setReporting(true)
+    setReportError('')
+    try {
+      const data = await postJson('/api/cc/voc-report', {
+        total: calls.length,
+        byCategory: agg.byCategory,
+        bySentiment: agg.bySentiment,
+        escalatedCount: agg.escalated.length,
+        escalatedTitles: agg.escalated.map((c) => c.title),
+      })
+      setReport(data)
+    } catch (err) {
+      setReportError(err.message)
+    } finally {
+      setReporting(false)
+    }
+  }
 
   return (
     <div className="tool-page">
@@ -170,6 +197,48 @@ export default function VocPage() {
         <section className="voc-card voc-card-wide">
           <h2>일별 통화 추이 (7/21 ~ 7/27)</h2>
           <TrendChart points={agg.byDate} />
+        </section>
+
+        <section className="voc-card voc-card-wide">
+          <h2>AI 인사이트 리포트 <span className="voc-card-sub">(집계 수치만 전송 — 통화 원문 미전송)</span></h2>
+          {!report && (
+            <>
+              <p className="result-empty-sub">
+                위 집계를 LLM이 읽고 "무엇이 몰리고, 어디서 강성이 나오는지"와 실행 가능한 권고
+                액션을 리포트로 작성합니다.
+              </p>
+              <button type="button" className="btn-primary" onClick={generateReport} disabled={reporting}>
+                {reporting ? '리포트 작성 중... (5~15초)' : '📋 AI 인사이트 리포트 생성'}
+              </button>
+              {reportError && <p className="form-error" role="alert">{reportError}</p>}
+            </>
+          )}
+          {report && (
+            <div className="voc-report">
+              <ResultNotice text={report.notice} />
+              <div className="result-toolbar">
+                {report.demo && <DemoBadge />}
+                <UsageNote usage={report.usage} />
+                <OssLlmNote model={report.llm_model} />
+              </div>
+              <p className="voc-report-headline">{report.headline}</p>
+              <strong>핵심 발견</strong>
+              <ul className="plain-list">
+                {report.findings.map((f, i) => (
+                  <li key={i}>{f}</li>
+                ))}
+              </ul>
+              <strong>권고 액션</strong>
+              <ul className="plain-list">
+                {report.recommendations.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+              <button type="button" className="preset-chip" onClick={() => setReport(null)}>
+                다시 생성
+              </button>
+            </div>
+          )}
         </section>
 
         <section className="voc-card voc-card-wide">

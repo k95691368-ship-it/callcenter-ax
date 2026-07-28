@@ -13,9 +13,10 @@ import { MAX_RULE_SCORE } from '../lib/qaRules.js'
 const STEPS = [
   { id: 'stt', title: '① 녹취 전사', desc: 'Whisper large-v3-turbo (Workers AI)' },
   { id: 'lex', title: '② 도메인 보정', desc: '콜센터 용어 사전 후보정 (튜닝 1단계)' },
-  { id: 'analyze', title: '③ 통화 분석', desc: '분류·요약·감정·에스컬레이션 (LLM)' },
-  { id: 'qa', title: '④ 품질 평가', desc: '규칙 40점 + LLM 60점 Auto QA' },
-  { id: 'voc', title: '⑤ VOC 누적', desc: '대시보드에 분석 결과 합산' },
+  { id: 'dia', title: '③ 화자 분리', desc: '상담사/고객 태깅 (NLP) — QA 정확도 연결' },
+  { id: 'analyze', title: '④ 통화 분석', desc: '분류·요약·감정·에스컬레이션 (LLM)' },
+  { id: 'qa', title: '⑤ 품질 평가', desc: '규칙 40점 + LLM 60점 Auto QA' },
+  { id: 'voc', title: '⑥ VOC 누적', desc: '대시보드에 분석 결과 합산' },
 ]
 
 function b64FromBuffer(buf) {
@@ -29,10 +30,11 @@ function b64FromBuffer(buf) {
 }
 
 export default function PipelinePage() {
-  const [stage, setStage] = useState(-1) // -1 대기, 0~4 진행, 5 완료
+  const [stage, setStage] = useState(-1) // -1 대기, 0~5 진행, 6 완료
   const [error, setError] = useState('')
   const [stt, setStt] = useState(null)
   const [lex, setLex] = useState(null)
+  const [dia, setDia] = useState(null)
   const [analysis, setAnalysis] = useState(null)
   const [qa, setQa] = useState(null)
 
@@ -40,6 +42,7 @@ export default function PipelinePage() {
     setError('')
     setStt(null)
     setLex(null)
+    setDia(null)
     setAnalysis(null)
     setQa(null)
     try {
@@ -53,34 +56,39 @@ export default function PipelinePage() {
       setStage(1)
       const corrected = applyLexicon(sttRes.text)
       setLex(corrected)
-      const transcript = corrected.text
 
-      // ③ 통화 분석
+      // ③ 화자 분리 — QA의 상담사 발화 평가가 정확해진다
       setStage(2)
+      const d = await postJson('/api/cc/diarize', { transcript: corrected.text })
+      setDia(d)
+      const transcript = d.formatted
+
+      // ④ 통화 분석
+      setStage(3)
       const a = await postJson('/api/cc/analyze', { transcript })
       setAnalysis(a)
 
-      // ④ Auto QA
-      setStage(3)
+      // ⑤ Auto QA
+      setStage(4)
       const q = await postJson('/api/cc/qa', { transcript })
       setQa(q)
 
-      // ⑤ VOC 누적
-      setStage(4)
+      // ⑥ VOC 누적
+      setStage(5)
       saveMyCall({
         title: `파이프라인 시연: ${transcript.slice(0, 24)}`,
         category: a.category,
         sentiment: a.sentiment,
         escalate: a.escalate,
       })
-      setStage(5)
+      setStage(6)
     } catch (err) {
       setError(err.message)
       setStage(-1)
     }
   }
 
-  const stageState = (i) => (stage === 5 || stage > i ? 'done' : stage === i ? 'now' : '')
+  const stageState = (i) => (stage === 6 || stage > i ? 'done' : stage === i ? 'now' : '')
 
   return (
     <div className="tool-page">
@@ -95,8 +103,8 @@ export default function PipelinePage() {
       </header>
 
       <div className="pipe-run">
-        <button type="button" className="btn-primary" onClick={run} disabled={stage >= 0 && stage < 5}>
-          {stage >= 0 && stage < 5 ? '파이프라인 실행 중...' : '▶ 전체 파이프라인 실행 (약 20~40초)'}
+        <button type="button" className="btn-primary" onClick={run} disabled={stage >= 0 && stage < 6}>
+          {stage >= 0 && stage < 6 ? '파이프라인 실행 중...' : '▶ 전체 파이프라인 실행 (약 30~50초)'}
         </button>
         {error && <p className="form-error" role="alert">{error}</p>}
       </div>
@@ -136,6 +144,17 @@ export default function PipelinePage() {
                 ) : (
                   <p className="result-empty-sub">보정할 도메인 용어 없음 — 전사가 이미 정확합니다.</p>
                 )}
+              </div>
+            )}
+
+            {s.id === 'dia' && dia && (
+              <div className="pipe-result">
+                <div className="result-toolbar">
+                  {dia.demo && <DemoBadge />}
+                  <UsageNote usage={dia.usage} />
+                  <OssLlmNote model={dia.llm_model} />
+                </div>
+                <p className="pipe-text">{dia.formatted}</p>
               </div>
             )}
 
@@ -184,7 +203,7 @@ export default function PipelinePage() {
               </div>
             )}
 
-            {s.id === 'voc' && stage === 5 && (
+            {s.id === 'voc' && stage === 6 && (
               <div className="pipe-result">
                 <p className="result-empty-sub">
                   이 분석이 VOC 대시보드에 누적되었습니다.{' '}
@@ -198,11 +217,11 @@ export default function PipelinePage() {
         ))}
       </ol>
 
-      {stage === 5 && (
+      {stage === 6 && (
         <div className="about-point">
-          방금 실행된 5단계가 곧 채용공고의 담당업무입니다 — STT, 도메인 튜닝, 분류·요약·감정
-          분석, Auto QA, VOC. 각 단계는 <Link to="/stt">개별 페이지</Link>에서 직접 입력으로도
-          실험할 수 있습니다.
+          방금 실행된 6단계가 곧 채용공고의 담당업무입니다 — STT, 도메인 튜닝, 화자 분리(NLP),
+          분류·요약·감정 분석, Auto QA, VOC. 각 단계는 <Link to="/stt">개별 페이지</Link>에서
+          직접 입력으로도 실험할 수 있습니다.
         </div>
       )}
     </div>
