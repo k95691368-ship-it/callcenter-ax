@@ -17,7 +17,7 @@ const STEPS = [
   { id: 'lex', title: '② 도메인 보정', desc: '콜센터 용어 사전 후보정 (튜닝 1단계)' },
   { id: 'dia', title: '③ 화자 분리', desc: '상담사/고객 태깅 (NLP) — QA 정확도 연결' },
   { id: 'analyze', title: '④ 통화 분석', desc: '분류·요약·감정·에스컬레이션 (LLM)' },
-  { id: 'qa', title: '⑤ 품질 평가', desc: '규칙 40점 + LLM 60점 Auto QA' },
+  { id: 'qa', title: '⑤ 품질 평가', desc: '규칙 40점 + LLM 60점 Auto QA — ④와 동시 실행' },
   { id: 'voc', title: '⑥ VOC 누적', desc: '대시보드에 분석 결과 합산' },
 ]
 
@@ -69,6 +69,9 @@ export default function PipelinePage() {
     onError: setError,
   })
 
+  // 단계별 실패를 기록하되 파이프라인 전체를 멈추지는 않는다 (STT 실패만 치명적)
+  const [stageErrors, setStageErrors] = useState({})
+
   async function run(micAudio) {
     setError('')
     setStt(null)
@@ -76,6 +79,7 @@ export default function PipelinePage() {
     setDia(null)
     setAnalysis(null)
     setQa(null)
+    setStageErrors({})
     try {
       // ① STT — 내장 샘플 또는 방금 녹음한 목소리를 실제 Whisper로 전사
       setStage(0)
@@ -91,30 +95,41 @@ export default function PipelinePage() {
       const corrected = applyLexicon(sttRes.text)
       setLex(corrected)
 
-      // ③ 화자 분리 — QA의 상담사 발화 평가가 정확해진다
+      // ③ 화자 분리 — 실패해도 보정 전사로 다음 단계를 계속한다
       setStage(2)
-      const d = await postJson('/api/cc/diarize', { transcript: corrected.text })
-      setDia(d)
-      const transcript = d.formatted
+      let transcript = corrected.text
+      try {
+        const d = await postJson('/api/cc/diarize', { transcript: corrected.text })
+        setDia(d)
+        transcript = d.formatted
+      } catch (err) {
+        setStageErrors((e) => ({ ...e, dia: err.message }))
+      }
 
-      // ④ 통화 분석
+      // ④⑤ 분석과 QA는 같은 전사를 읽으므로 동시에 실행한다 — 대기시간 단축.
+      // 한쪽이 실패해도 다른 쪽 결과는 살린다.
       setStage(3)
-      const a = await postJson('/api/cc/analyze', { transcript })
-      setAnalysis(a)
+      const [aRes, qRes] = await Promise.allSettled([
+        postJson('/api/cc/analyze', { transcript }),
+        postJson('/api/cc/qa', { transcript }),
+      ])
+      if (aRes.status === 'fulfilled') setAnalysis(aRes.value)
+      else setStageErrors((e) => ({ ...e, analyze: aRes.reason?.message || '분석 실패' }))
+      if (qRes.status === 'fulfilled') setQa(qRes.value)
+      else setStageErrors((e) => ({ ...e, qa: qRes.reason?.message || '평가 실패' }))
 
-      // ⑤ Auto QA
-      setStage(4)
-      const q = await postJson('/api/cc/qa', { transcript })
-      setQa(q)
-
-      // ⑥ VOC 누적
+      // ⑥ VOC 누적 — 분석이 성공한 경우에만
       setStage(5)
-      saveMyCall({
-        title: `파이프라인 시연: ${transcript.slice(0, 24)}`,
-        category: a.category,
-        sentiment: a.sentiment,
-        escalate: a.escalate,
-      })
+      if (aRes.status === 'fulfilled') {
+        saveMyCall({
+          title: `파이프라인 시연: ${transcript.slice(0, 24)}`,
+          category: aRes.value.category,
+          sentiment: aRes.value.sentiment,
+          escalate: aRes.value.escalate,
+        })
+      } else {
+        setStageErrors((e) => ({ ...e, voc: '분석이 실패해 이번 통화는 누적하지 않았습니다.' }))
+      }
       setStage(6)
     } catch (err) {
       setError(err.message)
@@ -122,7 +137,9 @@ export default function PipelinePage() {
     }
   }
 
-  const stageState = (i) => (stage === 6 || stage > i ? 'done' : stage === i ? 'now' : '')
+  // 분석·QA는 병렬 구간이라 stage 3 동안 ④⑤가 함께 진행 표시된다
+  const stageState = (i) =>
+    stage === 6 || stage > i ? 'done' : stage === i || (stage === 3 && i === 4) ? 'now' : ''
 
   return (
     <div className="tool-page">
@@ -171,12 +188,17 @@ export default function PipelinePage() {
         {STEPS.map((s, i) => (
           <li key={s.id} className={`pipe-step ${stageState(i)}`}>
             <div className="pipe-step-head">
-              <span className="pipe-step-mark">{stageState(i) === 'done' ? '✓' : stageState(i) === 'now' ? '●' : i + 1}</span>
+              <span className="pipe-step-mark">
+                {stageErrors[s.id] ? '!' : stageState(i) === 'done' ? '✓' : stageState(i) === 'now' ? '●' : i + 1}
+              </span>
               <div>
                 <strong>{s.title}</strong>
                 <span className="pipe-step-desc">{s.desc}</span>
               </div>
             </div>
+            {stageErrors[s.id] && (
+              <p className="pipe-step-error">이 단계는 건너뛰고 계속 진행했습니다 — {stageErrors[s.id]}</p>
+            )}
 
             {s.id === 'stt' && stt && (
               <div className="pipe-result">
@@ -261,7 +283,7 @@ export default function PipelinePage() {
               </div>
             )}
 
-            {s.id === 'voc' && stage === 6 && (
+            {s.id === 'voc' && stage === 6 && !stageErrors.voc && (
               <div className="pipe-result">
                 <p className="result-empty-sub">
                   이 분석이 VOC 대시보드에 누적되었습니다.{' '}

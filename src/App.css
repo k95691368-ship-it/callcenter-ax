@@ -1669,6 +1669,12 @@
   color: var(--green-600);
 }
 
+.pipe-step-error {
+  margin: 8px 0 0 40px;
+  font-size: 13px;
+  color: #d6403a;
+}
+
 /* ===== QA 커스텀 체크리스트 ===== */
 .qa-custom-row {
   display: grid;
