@@ -7,6 +7,7 @@ import { applyLexicon } from '../lib/domainLexicon.js'
 import { saveMyCall } from '../lib/myCalls.js'
 import { MAX_RULE_SCORE } from '../lib/qaRules.js'
 import { useRecorder } from '../lib/useRecorder.js'
+import { buildPipelineReport } from '../lib/pipelineReport.js'
 
 // 공고의 담당업무 파이프라인(녹취→STT→분석→QA→VOC)을 버튼 하나로 통과시키는 시연.
 // 각 단계는 실제 프로덕션 API를 그대로 호출한다 — 별도의 시연용 가짜 경로가 없다.
@@ -38,6 +39,18 @@ export default function PipelinePage() {
   const [dia, setDia] = useState(null)
   const [analysis, setAnalysis] = useState(null)
   const [qa, setQa] = useState(null)
+  const [copied, setCopied] = useState(false)
+
+  // 6단계 결과 전체를 인수인계 문서 한 장으로 복사한다
+  async function copyReport() {
+    try {
+      await navigator.clipboard.writeText(buildPipelineReport({ stt, lex, dia, analysis, qa }))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setError('클립보드 복사에 실패했습니다.')
+    }
+  }
 
   // 마이크 모드 — 녹음을 끝내면 자기 목소리로 파이프라인이 바로 실행된다
   const [micUrl, setMicUrl] = useState('')
@@ -263,11 +276,21 @@ export default function PipelinePage() {
       </ol>
 
       {stage === 6 && (
-        <div className="about-point">
-          방금 실행된 6단계가 곧 채용공고의 담당업무입니다 — STT, 도메인 튜닝, 화자 분리(NLP),
-          분류·요약·감정 분석, Auto QA, VOC. 각 단계는 <Link to="/stt">개별 페이지</Link>에서
-          직접 입력으로도 실험할 수 있습니다.
-        </div>
+        <>
+          <div className="hub-cta result-actions">
+            <button type="button" className="btn-ghost" onClick={copyReport}>
+              {copied ? '✓ 복사됨' : '전체 리포트 복사 (인수인계 한 장)'}
+            </button>
+            <Link to="/voc" className="btn-ghost">
+              VOC 대시보드에서 누적 확인 →
+            </Link>
+          </div>
+          <div className="about-point">
+            방금 실행된 6단계가 곧 채용공고의 담당업무입니다 — STT, 도메인 튜닝, 화자 분리(NLP),
+            분류·요약·감정 분석, Auto QA, VOC. 각 단계는 <Link to="/stt">개별 페이지</Link>에서
+            직접 입력으로도 실험할 수 있습니다.
+          </div>
+        </>
       )}
     </div>
   )
