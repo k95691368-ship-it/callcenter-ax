@@ -1,16 +1,24 @@
 // AI 생성 결과에 붙는 공통 메타 표시: 토큰 사용량·추정 비용, 안내문
 
-// claude-opus-5 단가 (USD / 토큰)
+// claude-opus-5 단가 (USD / 토큰) — 캐시에서 읽힌 입력은 10% 단가
 const INPUT_PRICE = 5 / 1_000_000
 const OUTPUT_PRICE = 25 / 1_000_000
+const CACHE_READ_PRICE = INPUT_PRICE * 0.1
 
 export function UsageNote({ usage }) {
   if (!usage || usage.input_tokens == null) return null
-  const cost = usage.input_tokens * INPUT_PRICE + usage.output_tokens * OUTPUT_PRICE
+  const cached = usage.cache_read_input_tokens || 0
+  const cost =
+    usage.input_tokens * INPUT_PRICE + cached * CACHE_READ_PRICE + usage.output_tokens * OUTPUT_PRICE
   return (
-    <span className="usage-note" title="이번 생성 1회의 실측 토큰 사용량과 추정 비용입니다.">
+    <span
+      className="usage-note"
+      title="이번 생성 1회의 실측 토큰 사용량과 추정 비용입니다. 캐시에서 재사용된 입력(시스템 프롬프트)은 10% 단가로 계산됩니다."
+    >
       claude-opus-5 · 입력 {usage.input_tokens.toLocaleString('ko-KR')} · 출력{' '}
-      {usage.output_tokens.toLocaleString('ko-KR')} 토큰 · 약 ${cost.toFixed(3)}
+      {usage.output_tokens.toLocaleString('ko-KR')} 토큰
+      {cached > 0 && <> · 캐시 재사용 {cached.toLocaleString('ko-KR')} (-90%)</>} · 약 $
+      {cost.toFixed(3)}
     </span>
   )
 }
