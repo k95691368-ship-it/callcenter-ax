@@ -36,6 +36,18 @@ describe('callWorkersJson', () => {
     expect(model).toBe(WORKERS_LLM_MODEL)
   })
 
+  it('OpenAI 호환 형태(choices[0].message.content)도 파싱한다', async () => {
+    const env = {
+      AI: {
+        run: async () => ({
+          choices: [{ message: { role: 'assistant', content: '{"category":"요금","escalate":true}' } }],
+        }),
+      },
+    }
+    const { input } = await callWorkersJson(env, { system: 's', user: 'u' })
+    expect(input).toEqual({ category: '요금', escalate: true })
+  })
+
   it('AI 바인딩이 없으면 거부한다', async () => {
     await expect(callWorkersJson({}, { system: 's', user: 'u' })).rejects.toThrow(/바인딩/)
   })

@@ -36,6 +36,12 @@ export async function callWorkersJson(env, { system, user, maxTokens = 1024 }) {
       setTimeout(() => reject(new Error('오픈소스 LLM 응답이 지연되고 있습니다.')), 40000)
     ),
   ])
-  const text = typeof result?.response === 'string' ? result.response : ''
+  // Workers AI 응답 형태는 모델에 따라 {response} 또는 OpenAI 호환 {choices[0].message.content}
+  const text =
+    typeof result?.response === 'string' && result.response
+      ? result.response
+      : typeof result?.choices?.[0]?.message?.content === 'string'
+        ? result.choices[0].message.content
+        : ''
   return { input: extractJson(text), model: WORKERS_LLM_MODEL }
 }
