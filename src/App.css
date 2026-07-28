@@ -1669,6 +1669,26 @@
   color: var(--green-600);
 }
 
+/* ===== 실시간 상담 지원 ===== */
+.assist-suggestion {
+  background: var(--blue-050);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  list-style: none;
+}
+
+.assist-suggestion p {
+  margin: 0 0 8px;
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.assist-suggestions {
+  padding-left: 0;
+}
+
 .pipe-step-error {
   margin: 8px 0 0 40px;
   font-size: 13px;

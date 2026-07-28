@@ -9,6 +9,7 @@ const AnalyzePage = lazy(() => import('./pages/AnalyzePage.jsx'))
 const QaPage = lazy(() => import('./pages/QaPage.jsx'))
 const VocPage = lazy(() => import('./pages/VocPage.jsx'))
 const SearchPage = lazy(() => import('./pages/SearchPage.jsx'))
+const AssistPage = lazy(() => import('./pages/AssistPage.jsx'))
 const AboutPage = lazy(() => import('./pages/AboutPage.jsx'))
 
 function lazyRoute(element) {
@@ -42,6 +43,7 @@ function App() {
         <Route path="/qa" element={lazyRoute(<QaPage />)} />
         <Route path="/voc" element={lazyRoute(<VocPage />)} />
         <Route path="/search" element={lazyRoute(<SearchPage />)} />
+        <Route path="/assist" element={lazyRoute(<AssistPage />)} />
         <Route path="/about" element={lazyRoute(<AboutPage />)} />
         <Route path="*" element={<NotFound />} />
       </Route>

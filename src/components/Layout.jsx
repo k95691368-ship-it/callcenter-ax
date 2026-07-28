@@ -9,6 +9,7 @@ const MENU = [
   { to: '/qa', label: 'Auto QA' },
   { to: '/voc', label: 'VOC 대시보드' },
   { to: '/search', label: 'RAG 검색' },
+  { to: '/assist', label: '상담 지원 ★' },
   { to: '/about', label: '제작기' },
 ]
 
@@ -51,6 +52,7 @@ export default function Layout() {
             <Link to="/qa">상담 품질 평가 (Auto QA)</Link>
             <Link to="/voc">VOC 대시보드</Link>
             <Link to="/search">RAG 상담 지식 검색</Link>
+            <Link to="/assist">실시간 상담 지원 (신규 제안)</Link>
           </div>
           <div className="footer-col">
             <p className="footer-title">이 포트폴리오</p>

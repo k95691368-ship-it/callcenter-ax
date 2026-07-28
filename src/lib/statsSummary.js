@@ -8,6 +8,7 @@ export const ENDPOINT_LABEL = {
   search: 'RAG 지식 검색',
   diarize: '화자 분리',
   'voc-report': 'VOC AI 리포트',
+  assist: '실시간 상담 지원',
 }
 
 // live / live-turbo / live-oss-vector 등 접두사 live면 실제 AI 호출로 본다

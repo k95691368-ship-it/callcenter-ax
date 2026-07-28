@@ -34,6 +34,12 @@ const DUTY_MAP = [
     label: 'Auto QA',
   },
   {
+    duty: 'STT, LLM, NLP, RAG 기술을 활용한 콜센터 AI 서비스 "신규 기능" 연구·개발',
+    impl: '실시간 상담 지원(Agent Assist) — 진행 중 대화를 읽고 규정 RAG 검색 + 다음 응대 멘트 제안 + 에스컬레이션 주의. 공고 문구에 대응해 직접 제안·구현한 신규 기능',
+    to: '/assist',
+    label: '상담 지원',
+  },
+  {
     duty: 'RAG 기반 검색',
     impl: 'bge-m3 벡터 + 키워드 랭킹 RRF 융합 하이브리드 검색 → 근거 문단만 사용해 답변 + 인용 표시. 내 문서를 붙여넣으면 실시간 인덱싱되어 같은 코퍼스에서 검색',
     to: '/search',
@@ -56,7 +62,8 @@ const LIVE_TABLE = [
   { feature: 'RAG 검색 (하이브리드)', mode: '라이브', how: 'bge-m3 벡터 + 키워드 랭킹 RRF 융합, 임베딩 실패 시 키워드 폴백' },
   { feature: 'QA 규칙 스캔 (멘트·금지 표현)', mode: '항상 실제 계산', how: '결정적 규칙 엔진 — 데모 모드에서도 진짜로 동작' },
   { feature: 'VOC 대시보드', mode: '항상 실제 계산', how: '내장 10건 + 직접 분석한 통화를 브라우저에 누적 집계 (서버 미전송)' },
-  { feature: 'LLM 분석·QA 정성 평가·RAG 답변', mode: '라이브', how: '오픈소스 LLM(Llama 3.3 70B, Workers AI) — CLAUDE_API_KEY 등록 시 Claude Opus 5로 자동 상향' },
+  { feature: 'LLM 분석·QA 정성 평가·RAG 답변', mode: '라이브', how: 'Claude Opus 5 가동 중 — 실패 시 오픈소스 LLM(Llama 3.3 70B)이 이어받는 3단 사다리' },
+  { feature: '실시간 상담 지원 (Agent Assist)', mode: '라이브', how: 'RAG 근거 검색 + LLM 응대 제안 — 신규 기능 제안·구현' },
 ]
 
 export default function AboutPage() {
