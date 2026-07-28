@@ -225,6 +225,12 @@ export default function AboutPage() {
           <div className="chip-row" aria-label="운영 지표 요약">
             <span className="cat-badge cat-ship">누적 AI 호출 {stats.summary.total}회</span>
             <span className="cat-badge cat-praise">라이브 호출 비율 {stats.summary.liveRatio}%</span>
+            {stats.summary.claudeCalls > 0 && (
+              <span className="cat-badge cat-refund">Claude Opus 5 경유 {stats.summary.claudeCalls}회</span>
+            )}
+            {stats.summary.ossCalls > 0 && (
+              <span className="cat-badge cat-etc">오픈소스 모델 경유 {stats.summary.ossCalls}회</span>
+            )}
             <span className="usage-note">지금 이 순간의 실제 수치 (/api/cc/stats)</span>
           </div>
           <div className="req-table-wrap">

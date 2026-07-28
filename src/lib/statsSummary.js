@@ -15,17 +15,29 @@ export function isLiveMode(mode) {
   return typeof mode === 'string' && mode.startsWith('live')
 }
 
+// live 호출 중 오픈소스 경유(live-oss*, Whisper의 live-turbo/base)와 Claude 경유를 구분한다.
+// search의 Claude 경로는 live-hybrid/live-vector처럼 검색 모드가 붙으므로 'oss' 포함 여부로 가른다.
+export function liveEngine(mode) {
+  if (!isLiveMode(mode)) return null
+  return mode.includes('oss') || mode.includes('turbo') || mode.includes('base') ? 'oss' : 'claude'
+}
+
 export function summarizeStats(rows) {
   const list = Array.isArray(rows) ? rows : []
   const byEndpoint = new Map()
   let total = 0
   let liveCalls = 0
+  let claudeCalls = 0
+  let ossCalls = 0
 
   for (const r of list) {
     const calls = Number(r.calls) || 0
     if (!r.endpoint || calls <= 0) continue
     total += calls
     if (isLiveMode(r.mode)) liveCalls += calls
+    const engine = liveEngine(r.mode)
+    if (engine === 'claude') claudeCalls += calls
+    else if (engine === 'oss') ossCalls += calls
 
     const cur =
       byEndpoint.get(r.endpoint) || {
@@ -58,6 +70,8 @@ export function summarizeStats(rows) {
   return {
     total,
     liveCalls,
+    claudeCalls,
+    ossCalls,
     liveRatio: total ? Math.round((liveCalls / total) * 100) : 0,
     endpoints,
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { summarizeStats, isLiveMode, ENDPOINT_LABEL } from '../src/lib/statsSummary.js'
+import { summarizeStats, isLiveMode, liveEngine, ENDPOINT_LABEL } from '../src/lib/statsSummary.js'
 
 describe('isLiveMode', () => {
   it('live 접두사 모드를 모두 라이브로 판정한다', () => {
@@ -62,5 +62,26 @@ describe('summarizeStats', () => {
     const unknown = s.endpoints.find((e) => e.endpoint === 'unknown-x')
     expect(unknown.label).toBe('unknown-x')
     expect(unknown.avgLatencyMs).toBe(null)
+  })
+})
+
+describe('liveEngine (엔진 분포)', () => {
+  it('live 계열에서 Claude와 오픈소스 경유를 구분한다', () => {
+    expect(liveEngine('live')).toBe('claude')
+    expect(liveEngine('live-hybrid')).toBe('claude')
+    expect(liveEngine('live-oss')).toBe('oss')
+    expect(liveEngine('live-oss-hybrid')).toBe('oss')
+    expect(liveEngine('live-turbo')).toBe('oss')
+    expect(liveEngine('demo')).toBe(null)
+  })
+
+  it('summarizeStats가 엔진별 합계를 낸다', () => {
+    const s = summarizeStats([
+      { endpoint: 'analyze', mode: 'live', calls: 4, avg_latency_ms: 3000 },
+      { endpoint: 'analyze', mode: 'live-oss', calls: 2, avg_latency_ms: 3000 },
+      { endpoint: 'qa', mode: 'demo', calls: 1, avg_latency_ms: 5 },
+    ])
+    expect(s.claudeCalls).toBe(4)
+    expect(s.ossCalls).toBe(2)
   })
 })

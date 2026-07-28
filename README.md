@@ -38,10 +38,14 @@
 ## AI 엔진 — 3단 폴백 사다리
 
 ```
-1순위  Claude Opus 5 (claude-opus-5) — CLAUDE_API_KEY 등록 시, tool 강제 호출
-2순위  오픈소스 Llama 3.3 70B (Workers AI) — 키 없이 즉시 라이브 (현재 동작)
+1순위  Claude Opus 5 (claude-opus-5) — 현재 가동 중, tool 강제 호출 + 프롬프트 캐싱
+2순위  오픈소스 Llama 3.3 70B (Workers AI) — Claude "실패 시에도" 이어받는 진짜 사다리
 3순위  규칙 기반 데모 — 모든 AI 실패 시에도 흐름 유지
 ```
+
+Claude 호출만의 일일 예산 칸막이(150회)가 있어 소진 시 서비스 중단 없이 오픈소스로
+자연 강등된다 — 과금 폭주가 구조적으로 불가능. 프롬프트 캐싱 실측: 동일 요청 입력
+토큰 1,211 → 299 (-75%).
 
 STT(Whisper)·임베딩(bge-m3)·LLM(Llama)까지 **오픈소스 전 스택**으로 대응하고, 어떤 엔진이
 답했는지 결과에 배지로 표시한다.
@@ -73,7 +77,7 @@ Cloudflare Pages Functions  /api/cc/{stt, diarize, analyze, qa, search, voc-repo
 npm install
 npm run dev        # 프론트만 (API는 데모 폴백)
 npm run dev:full   # 빌드 + wrangler pages dev (Functions 포함)
-npm test           # vitest 75개 (QA 점수·커스텀 규칙·CER·도메인 보정·RRF 융합·계약 검증·JSON 파서·운영 지표)
+npm test           # vitest 96개 (QA 점수·커스텀 규칙·CER·도메인 보정·RRF 융합·계약 검증·폴백 사다리·운영 지표)
 npm run lint       # oxlint
 git push           # Cloudflare Pages Git 연동 자동 빌드·배포 (wrangler.toml 바인딩 자동 적용)
 ```
