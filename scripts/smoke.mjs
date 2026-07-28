@@ -53,6 +53,14 @@ await check('정적 자산 (OG 이미지·샘플 음성·robots)', async () => {
   }
 })
 
+await check('보안 응답 헤더 (nosniff·frame·referrer·permissions)', async () => {
+  const res = await get('/')
+  const need = ['x-content-type-options', 'x-frame-options', 'referrer-policy', 'permissions-policy']
+  for (const h of need) {
+    if (!res.headers.get(h)) throw new Error(`${h} 누락`)
+  }
+})
+
 await check('빈 입력 검증 (400) — analyze·assist·analyze-batch', async () => {
   for (const ep of ['/api/cc/analyze', '/api/cc/assist', '/api/cc/analyze-batch']) {
     const res = await fetch(`${BASE}${ep}`, {
