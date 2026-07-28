@@ -1,7 +1,8 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
-import { callClaudeTool, ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
-import { callWorkersJson, hasWorkersAi } from '../../_lib/workersLlm.js'
+import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
+import { hasWorkersAi } from '../../_lib/workersLlm.js'
+import { runLlmLadder } from '../../_lib/ladder.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 
@@ -96,28 +97,21 @@ export async function onRequestPost(context) {
 위 집계만 근거로 운영 리포트를 기록하세요.`
 
   try {
-    let result
-    let usage = null
-    let llmModel = null
-    if (canClaude) {
-      const r = await callClaudeTool(env, { system: SYSTEM, user: userPrompt, tool: TOOL, maxTokens: 4096 })
-      result = r.input
-      usage = r.usage
-    } else {
-      const r = await callWorkersJson(env, {
-        system: `${SYSTEM}\n\nJSON 스키마: {"headline":"한 줄","findings":["발견 2~3개"],"recommendations":["권고 2개"]}`,
-        user: userPrompt,
-        maxTokens: 1024,
-      })
-      result = r.input
-      llmModel = r.model
-    }
+    const r = await runLlmLadder(env, {
+      system: SYSTEM,
+      user: userPrompt,
+      tool: TOOL,
+      maxTokens: 4096,
+      workersSchema: '{"headline":"한 줄","findings":["발견 2~3개"],"recommendations":["권고 2개"]}',
+      workersMaxTokens: 1024,
+    })
+    const result = r.input
     ensureContract(result, { arrays: ['findings', 'recommendations'], strings: ['headline'] })
-    logCall(context, { endpoint: 'voc-report', mode: canClaude ? 'live' : 'live-oss', startedAt, usage })
+    logCall(context, { endpoint: 'voc-report', mode: r.engine === 'claude' ? 'live' : 'live-oss', startedAt, usage: r.usage })
     return json({
       demo: false,
-      usage,
-      llm_model: llmModel,
+      usage: r.usage,
+      llm_model: r.model,
       headline: result.headline,
       findings: result.findings.slice(0, 3),
       recommendations: result.recommendations.slice(0, 3),

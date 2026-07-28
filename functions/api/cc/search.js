@@ -1,7 +1,8 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
-import { callClaudeTool, ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
-import { callWorkersJson, hasWorkersAi } from '../../_lib/workersLlm.js'
+import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
+import { hasWorkersAi } from '../../_lib/workersLlm.js'
+import { runLlmLadder } from '../../_lib/ladder.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { FAQ_DOCS, rankByKeyword, cosineSim, fuseRankings } from '../../../src/lib/faqDocs.js'
@@ -145,33 +146,31 @@ export async function onRequestPost(context) {
       .map((r) => `[문서 id=${r.id}] ${r.title}\n${r.body}`)
       .join('\n\n')
     const userPrompt = `[근거 문서 (유사도 상위 ${results.length}건)]\n${context_docs}\n\n[상담사 질문]\n${question}\n\n근거 문서만 사용해 답변을 기록하세요.`
-    let result
-    let usage = null
-    let llmModel = null
-    if (canClaude) {
-      const r = await callClaudeTool(env, { system: SYSTEM, user: userPrompt, tool: TOOL, maxTokens: 1024 })
-      result = r.input
-      usage = r.usage
-    } else {
-      const r = await callWorkersJson(env, {
-        system: `${SYSTEM}\n\nJSON 스키마: {"answer":"3~5문장 한국어 답변","cited_ids":["실제 인용한 문서 id"]}`,
-        user: userPrompt,
-        maxTokens: 768,
-      })
-      result = r.input
-      llmModel = r.model
-    }
+    const r = await runLlmLadder(env, {
+      system: SYSTEM,
+      user: userPrompt,
+      tool: TOOL,
+      maxTokens: 1024,
+      workersSchema: '{"answer":"3~5문장 한국어 답변","cited_ids":["실제 인용한 문서 id"]}',
+      workersMaxTokens: 768,
+    })
+    const result = r.input
     ensureContract(result, { arrays: ['cited_ids'], strings: ['answer'] })
-    logCall(context, { endpoint: 'search', mode: canClaude ? `live-${mode}` : `live-oss-${mode}`, startedAt, usage })
+    logCall(context, {
+      endpoint: 'search',
+      mode: r.engine === 'claude' ? `live-${mode}` : `live-oss-${mode}`,
+      startedAt,
+      usage: r.usage,
+    })
     return json({
       demo: false,
       mode,
       embed_model: mode === 'keyword' ? null : EMBED_MODEL,
-      usage,
-      llm_model: llmModel,
+      usage: r.usage,
+      llm_model: r.model,
       results: publicResults,
       answer: result.answer,
-      cited_ids: result.cited_ids.filter((id) => results.some((r) => r.id === id)),
+      cited_ids: result.cited_ids.filter((id) => results.some((x) => x.id === id)),
     })
   } catch (err) {
     const t = templateAnswer(results)

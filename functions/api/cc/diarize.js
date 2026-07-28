@@ -1,7 +1,8 @@
 import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
-import { callClaudeTool, ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
-import { callWorkersJson, hasWorkersAi } from '../../_lib/workersLlm.js'
+import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
+import { hasWorkersAi } from '../../_lib/workersLlm.js'
+import { runLlmLadder } from '../../_lib/ladder.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 
@@ -63,25 +64,17 @@ export async function onRequestPost(context) {
 
   try {
     const userPrompt = `[화자 구분 없는 전사]\n${transcript}\n\n화자를 분리해 기록하세요.`
-    let result
-    let usage = null
-    let llmModel = null
-    if (canClaude) {
-      const r = await callClaudeTool(env, { system: SYSTEM, user: userPrompt, tool: TOOL, maxTokens: 6144 })
-      result = r.input
-      usage = r.usage
-    } else {
-      const r = await callWorkersJson(env, {
-        system: `${SYSTEM}\n\nJSON 스키마: {"formatted":"상담사: ...\\n고객: ... 형식의 전문"}`,
-        user: userPrompt,
-        maxTokens: 1536,
-      })
-      result = r.input
-      llmModel = r.model
-    }
-    ensureContract(result, { strings: ['formatted'] })
-    logCall(context, { endpoint: 'diarize', mode: canClaude ? 'live' : 'live-oss', startedAt, usage })
-    return json({ demo: false, usage, llm_model: llmModel, formatted: result.formatted })
+    const r = await runLlmLadder(env, {
+      system: SYSTEM,
+      user: userPrompt,
+      tool: TOOL,
+      maxTokens: 6144,
+      workersSchema: '{"formatted":"상담사: ...\\n고객: ... 형식의 전문"}',
+      workersMaxTokens: 1536,
+    })
+    ensureContract(r.input, { strings: ['formatted'] })
+    logCall(context, { endpoint: 'diarize', mode: r.engine === 'claude' ? 'live' : 'live-oss', startedAt, usage: r.usage })
+    return json({ demo: false, usage: r.usage, llm_model: r.model, formatted: r.input.formatted })
   } catch (err) {
     logCall(context, { endpoint: 'diarize', mode: 'fallback', startedAt })
     return json({ demo: true, formatted: transcript, notice: `일시적인 AI 혼잡으로 원문을 유지합니다. (${err.message})` })
