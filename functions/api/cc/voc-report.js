@@ -1,4 +1,4 @@
-import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
+import { json, errorJson, readJsonBody, clientKey } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
@@ -59,14 +59,22 @@ function demoReport(stats) {
 export async function onRequestPost(context) {
   const { request, env } = context
   const body = await readJsonBody(request)
+  // 집계 항목은 개수만 자르는 것으로는 부족하다. 이름 문자열이 그대로 프롬프트에
+  // 들어가므로 길이를 제한하지 않으면 요청 하나로 수 MB짜리 유료 프롬프트를 만들 수 있다.
+  // 숫자도 함께 정규화해 문자열이 섞여 들어오는 것을 막는다(리포트 숫자 검증의 전제).
+  const normalizeBuckets = (raw) =>
+    (Array.isArray(raw) ? raw : []).slice(0, 8).map((b) => ({
+      name: String(b?.name ?? '').slice(0, 20),
+      count: Math.max(0, Math.min(Number(b?.count) || 0, 100000)),
+    }))
   const stats = {
-    total: Number(body?.total) || 0,
-    byCategory: Array.isArray(body?.byCategory) ? body.byCategory.slice(0, 8) : [],
-    bySentiment: Array.isArray(body?.bySentiment) ? body.bySentiment.slice(0, 8) : [],
-    escalatedCount: Number(body?.escalatedCount) || 0,
+    total: Math.max(0, Math.min(Number(body?.total) || 0, 100000)),
+    byCategory: normalizeBuckets(body?.byCategory),
+    bySentiment: normalizeBuckets(body?.bySentiment),
+    escalatedCount: Math.max(0, Math.min(Number(body?.escalatedCount) || 0, 100000)),
     escalatedTitles: (Array.isArray(body?.escalatedTitles) ? body.escalatedTitles : [])
       .slice(0, 6)
-      .map((t) => String(t).slice(0, 60)),
+      .map((t) => String(t ?? '').slice(0, 40)),
   }
   if (stats.total <= 0) return errorJson('집계할 통화 데이터가 없습니다.')
 
@@ -81,13 +89,17 @@ export async function onRequestPost(context) {
     logCall(context, { endpoint: 'voc-report', mode: 'demo', startedAt })
     return json(demoReport(stats))
   }
-  if (!(await checkRateLimit(env, 'cc:daily:all', 300, 86400)))
-    return json({ ...demoReport(stats), notice: '오늘의 라이브 예산이 소진되어 예시 리포트를 표시합니다.' })
-  const ip = clientIp(request)
+  // 검사 순서가 중요하다: 거부될 요청이 공유 예산을 먼저 태우면 한 IP가 전체 서비스의
+  // 하루치를 소진시킬 수 있다. 좁은 제한(IP)부터 확인하고 일일 예산은 마지막에 차감한다.
+  const ip = await clientKey(request, env)
   if (!(await checkRateLimit(env, `cc:vocreport:${ip}`, 6, 3600)))
     return errorJson('리포트 생성은 시간당 6회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
   if (!(await checkRateLimit(env, 'cc:vocreport:all', 40, 3600)))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
+  if (!(await checkRateLimit(env, 'cc:daily:all', 300, 86400))) {
+    logCall(context, { endpoint: 'voc-report', mode: 'budget', startedAt })
+    return json({ ...demoReport(stats), notice: '오늘의 라이브 예산이 소진되어 예시 리포트를 표시합니다.' })
+  }
 
   const userPrompt = `[VOC 집계]
 총 통화: ${stats.total}건

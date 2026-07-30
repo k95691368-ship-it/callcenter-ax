@@ -88,31 +88,62 @@ describe('ensureContract', () => {
 })
 
 describe('checkRateLimit', () => {
-  function mockDb(count, { firstThrows = false } = {}) {
-    return {
-      prepare: () => ({
-        bind: () => ({
-          run: async () => ({}),
-          first: async () => {
-            if (firstThrows) throw new Error('D1 down')
-            return { count }
+  // 조건부 INSERT 한 문장으로 검사와 기록을 함께 처리하므로, 통과 여부는
+  // meta.changes(삽입된 행 수)로 판정된다. 목도 그 계약을 따른다.
+  // bind 인수를 버리지 않고 모아둔다 — 버킷 문자열에 무엇이 들어가는지 검증하기 위해서다.
+  function mockDb(inserted, { throws = false } = {}) {
+    const calls = { sql: [], bindings: [] }
+    const db = {
+      calls,
+      prepare: (sql) => {
+        calls.sql.push(sql)
+        const stmt = {
+          bind: (...args) => {
+            calls.bindings.push(args)
+            return {
+              run: async () => {
+                if (throws) throw new Error('D1 down')
+                return { meta: { changes: inserted } }
+              },
+              first: async () => {
+                if (throws) throw new Error('D1 down')
+                return { count: 0 }
+              },
+            }
           },
-        }),
-        run: async () => ({}),
-      }),
+          run: async () => ({ meta: { changes: 0 } }),
+        }
+        return stmt
+      },
     }
+    return db
   }
 
-  it('한도 미만이면 허용한다', async () => {
-    expect(await checkRateLimit({ DB: mockDb(3) }, 'b', 5, 60)).toBe(true)
+  it('한도 미만이면(행이 삽입되면) 허용한다', async () => {
+    expect(await checkRateLimit({ DB: mockDb(1) }, 'b', 5, 60)).toBe(true)
   })
 
-  it('한도에 도달하면 차단한다', async () => {
-    expect(await checkRateLimit({ DB: mockDb(5) }, 'b', 5, 60)).toBe(false)
+  it('한도에 도달하면(행이 삽입되지 않으면) 차단한다', async () => {
+    expect(await checkRateLimit({ DB: mockDb(0) }, 'b', 5, 60)).toBe(false)
   })
 
-  it('DB 오류 시 500 대신 fail-open으로 허용한다', async () => {
-    expect(await checkRateLimit({ DB: mockDb(0, { firstThrows: true }) }, 'b', 5, 60)).toBe(true)
+  it('검사와 기록을 한 문장으로 처리해 동시 요청이 상한을 넘지 못한다', async () => {
+    const db = mockDb(1)
+    await checkRateLimit({ DB: db }, 'bucket-x', 5, 60)
+    const insert = db.calls.sql.find((s) => s.includes('INSERT INTO rate_limit_hits'))
+    expect(insert).toBeTruthy()
+    // 조건 없는 INSERT였다면 상한 검사가 별도 왕복으로 분리되어 경쟁이 생긴다
+    expect(insert).toMatch(/SELECT COUNT\(\*\)/)
+  })
+
+  it('DB 오류 시 남용 방지 버킷은 fail-open으로 허용한다', async () => {
+    expect(await checkRateLimit({ DB: mockDb(0, { throws: true }) }, 'b', 5, 60)).toBe(true)
+  })
+
+  it('DB 오류 시 유료 예산 버킷은 fail-closed로 막는다', async () => {
+    expect(
+      await checkRateLimit({ DB: mockDb(0, { throws: true }) }, 'cc:claude:daily', 150, 86400, { failOpen: false })
+    ).toBe(false)
   })
 
   it('DB 바인딩이 없으면 제한 없이 통과한다', async () => {

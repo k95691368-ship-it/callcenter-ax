@@ -1,6 +1,6 @@
 // Auto QA 1층: 규칙 기반 평가 (결정적 — 데모 모드에서도 실제로 동작한다)
 // 필수 안내 멘트 체크리스트 40점 + 금지 표현 감점.
-// 서버(functions/_lib/qacheck.js)와 프론트가 같은 규칙을 공유해 기준 불일치를 막는다.
+// 서버(functions/api/cc/qa.js)와 프론트가 이 파일을 직접 공유해 기준 불일치를 막는다.
 
 export const REQUIRED_MENTIONS = [
   {
@@ -160,6 +160,13 @@ export function scanForbidden(text) {
     lastEnd = f.index + f.word.length
   }
   return deduped
+}
+
+// 화자 라벨이 실제로 있는지 — 없으면 아래 agentLines가 전체 텍스트를 돌려주므로
+// 금지 표현 스캔이 고객 발화까지 상담사 감점으로 집계한다("했잖아요", "아 진짜"는
+// 화난 고객의 말이다). 점수를 조용히 왜곡하지 않도록 호출부가 이 사실을 표시해야 한다.
+export function hasSpeakerLabels(transcript) {
+  return (transcript || '').split('\n').some((l) => /^\s*(상담사|상담원|agent)\s*[:：]/i.test(l))
 }
 
 // 통화 텍스트에서 상담사 발화만 추출한다. 화자 구분이 없으면 전체를 반환한다.

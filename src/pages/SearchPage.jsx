@@ -73,7 +73,9 @@ export default function SearchPage() {
     }
   }
 
-  const maxScore = result ? Math.max(...result.results.map((r) => r.score), 0.001) : 1
+  // 순위를 정한 값으로 막대를 그린다 — 하이브리드 모드는 RRF, 키워드 폴백은 가중치.
+  const rankValue = (r) => (r.rrf != null ? r.rrf : r.score || 0)
+  const maxRank = result ? Math.max(...result.results.map(rankValue), 0.001) : 1
 
   return (
     <div className="tool-page">
@@ -163,9 +165,7 @@ export default function SearchPage() {
                             ? ' · 실시간 임베딩'
                             : ''
                       }`
-                    : result.mode === 'vector'
-                      ? `${result.embed_model} 임베딩 · 코사인 유사도`
-                      : '키워드 랭킹 (임베딩 폴백)'}
+                    : '키워드 랭킹 (임베딩 폴백)'}
                 </span>
               </div>
 
@@ -191,8 +191,13 @@ export default function SearchPage() {
               </div>
 
               <section className="analysis-block">
-                <h2>근거 문서 (유사도 상위 {result.results.length}건)</h2>
+                <h2>
+                  근거 문서 (상위 {result.results.length}건 ·{' '}
+                  {result.results.some((r) => r.rrf != null) ? 'RRF 융합 순위' : '키워드 순위'})
+                </h2>
                 <div className="rank-bars">
+                  {/* 정렬은 RRF로 하는데 막대를 코사인 점수로 그리면 1위 문서가 2위보다
+                      짧은 막대를 갖는 화면이 나온다. 순위를 정한 값으로 막대도 그린다. */}
                   {result.results.map((r) => (
                     <div className="rank-row" key={r.id}>
                       <span className="rank-label">
@@ -202,10 +207,15 @@ export default function SearchPage() {
                       <span className="rank-track">
                         <span
                           className="rank-fill"
-                          style={{ width: `${Math.max(6, (r.score / maxScore) * 100)}%` }}
+                          style={{ width: `${Math.max(6, (rankValue(r) / maxRank) * 100)}%` }}
                         />
                       </span>
-                      <span className="rank-value">{r.score.toFixed(3)}</span>
+                      <span
+                        className="rank-value"
+                        title={r.rrf != null ? 'RRF 융합 점수 (정렬 기준)' : '키워드 랭킹 가중치'}
+                      >
+                        {r.rrf != null ? rankValue(r).toFixed(4) : rankValue(r).toFixed(1)}
+                      </span>
                     </div>
                   ))}
                 </div>

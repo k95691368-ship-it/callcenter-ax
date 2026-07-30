@@ -4,6 +4,7 @@
 export const ENDPOINT_LABEL = {
   stt: '녹취 전사 (Whisper STT)',
   analyze: '통화 분석 (분류·요약)',
+  'analyze-batch': '일괄 통화 분석',
   qa: '상담 품질 평가 (Auto QA)',
   search: 'RAG 지식 검색',
   diarize: '화자 분리',

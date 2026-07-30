@@ -1,4 +1,4 @@
-import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
+import { json, errorJson, readJsonBody, clientKey } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
@@ -79,14 +79,17 @@ export async function onRequestPost(context) {
     logCall(context, { endpoint: 'analyze-batch', mode: 'demo', startedAt })
     return json(demoAll())
   }
-  if (!(await checkRateLimit(env, 'cc:daily:all', 300, 86400)))
-    return json({ ...demoAll(), notice: '오늘의 라이브 예산이 소진되어 예시 결과를 표시합니다.' })
-
-  const ip = clientIp(request)
+  // 검사 순서가 중요하다: 거부될 요청이 공유 예산을 먼저 태우면 한 IP가 전체 서비스의
+  // 하루치를 소진시킬 수 있다. 좁은 제한(IP)부터 확인하고 일일 예산은 마지막에 차감한다.
+  const ip = await clientKey(request, env)
   if (!(await checkRateLimit(env, `cc:analyzebatch:${ip}`, 4, 3600)))
     return errorJson('일괄 분석은 시간당 4회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
   if (!(await checkRateLimit(env, 'cc:analyzebatch:all', 20, 3600)))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
+  if (!(await checkRateLimit(env, 'cc:daily:all', 300, 86400))) {
+    logCall(context, { endpoint: 'analyze-batch', mode: 'budget', startedAt })
+    return json({ ...demoAll(), notice: '오늘의 라이브 예산이 소진되어 예시 결과를 표시합니다.' })
+  }
 
   try {
     const userPrompt = transcripts

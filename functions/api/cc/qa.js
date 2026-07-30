@@ -1,4 +1,4 @@
-import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
+import { json, errorJson, readJsonBody, clientKey } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
@@ -14,6 +14,7 @@ import {
   mentionRuleSet,
   REQUIRED_MENTIONS,
   applyConsistencyBand,
+  hasSpeakerLabels,
 } from '../../../src/lib/qaRules.js'
 
 const MAX_CHARS = 8000
@@ -95,10 +96,13 @@ export async function onRequestPost(context) {
   const agentText = agentLines(transcript)
   const mentions = checkMentions(agentText, ruleSet)
   const findings = scanForbidden(agentText)
+  // 화자 라벨이 없으면 고객 발화까지 상담사 감점으로 잡힌다. 점수를 바꾸지는 않되
+  // 그 사실을 응답에 실어 화면이 표시할 수 있게 한다.
+  const speakerLabeled = hasSpeakerLabels(transcript)
 
   const respond = (llm, extra = {}) => {
     const score = computeQaScore({ mentions, findings, llm })
-    return json({ mentions, findings, score, ...extra })
+    return json({ mentions, findings, score, speaker_labeled: speakerLabeled, ...extra })
   }
 
   const canClaude = hasApiKey(env)
@@ -107,24 +111,28 @@ export async function onRequestPost(context) {
   if (!canClaude && !canWorkers) {
     const demo = demoLlmReview(mentions, findings)
     logCall(context, { endpoint: 'qa', mode: 'demo', startedAt, findingsCount: findings.length })
-    return respond(demo, { demo: true, comments: demo.comments, coaching: demo.coaching })
+    // llm을 null로 넘겨 점수가 "추정치"로 표시되게 한다. 데모 객체를 그대로 넘기면
+    // computeQaScore가 실측 LLM 평가와 구분하지 못해 추정 라벨이 사라진다.
+    return respond(null, { demo: true, comments: demo.comments, coaching: demo.coaching })
   }
 
+  // 검사 순서가 중요하다: 거부될 요청이 공유 예산을 먼저 태우면 한 IP가 전체 서비스의
+  // 하루치를 소진시킬 수 있다. 좁은 제한(IP)부터 확인하고 일일 예산은 마지막에 차감한다.
+  const ip = await clientKey(request, env)
+  if (!(await checkRateLimit(env, `cc:qa:${ip}`, 6, 3600)))
+    return errorJson('품질 평가는 시간당 6회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
+  if (!(await checkRateLimit(env, 'cc:qa:all', 40, 3600)))
+    return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
   if (!(await checkRateLimit(env, 'cc:daily:all', 300, 86400))) {
     const demo = demoLlmReview(mentions, findings)
-    return respond(demo, {
+    logCall(context, { endpoint: 'qa', mode: 'budget', startedAt, findingsCount: findings.length })
+    return respond(null, {
       demo: true,
       comments: demo.comments,
       coaching: demo.coaching,
       notice: '오늘의 라이브 평가 예산이 소진되어 정성 평가는 추정치로 표시합니다.',
     })
   }
-
-  const ip = clientIp(request)
-  if (!(await checkRateLimit(env, `cc:qa:${ip}`, 6, 3600)))
-    return errorJson('품질 평가는 시간당 6회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
-  if (!(await checkRateLimit(env, 'cc:qa:all', 40, 3600)))
-    return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   try {
     const userPrompt = `[통화 전사]\n${transcript}\n\n[규칙 스캔 결과 참고]\n필수 멘트 이행: ${mentions
@@ -170,7 +178,7 @@ export async function onRequestPost(context) {
   } catch (err) {
     const demo = demoLlmReview(mentions, findings)
     logCall(context, { endpoint: 'qa', mode: 'fallback', startedAt, findingsCount: findings.length })
-    return respond(demo, {
+    return respond(null, {
       demo: true,
       comments: demo.comments,
       coaching: demo.coaching,

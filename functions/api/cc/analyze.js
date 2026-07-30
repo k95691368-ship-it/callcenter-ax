@@ -1,4 +1,4 @@
-import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
+import { json, errorJson, readJsonBody, clientKey } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
@@ -113,15 +113,17 @@ export async function onRequestPost(context) {
     return json(demoAnalyze(transcript))
   }
 
-  if (!(await checkRateLimit(env, 'cc:daily:all', 300, 86400))) {
-    return json({ ...demoAnalyze(transcript), notice: '오늘의 라이브 분석 예산이 소진되어 예시 결과를 표시합니다.' })
-  }
-
-  const ip = clientIp(request)
+  // 검사 순서가 중요하다: 거부될 요청이 공유 예산을 먼저 태우면 한 IP가 전체 서비스의
+  // 하루치를 소진시킬 수 있다. 좁은 제한(IP)부터 확인하고 일일 예산은 마지막에 차감한다.
+  const ip = await clientKey(request, env)
   if (!(await checkRateLimit(env, `cc:analyze:${ip}`, 6, 3600)))
     return errorJson('통화 분석은 시간당 6회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
   if (!(await checkRateLimit(env, 'cc:analyze:all', 40, 3600)))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
+  if (!(await checkRateLimit(env, 'cc:daily:all', 300, 86400))) {
+    logCall(context, { endpoint: 'analyze', mode: 'budget', startedAt })
+    return json({ ...demoAnalyze(transcript), notice: '오늘의 라이브 분석 예산이 소진되어 예시 결과를 표시합니다.' })
+  }
 
   try {
     const userPrompt = `[콜센터 통화 전사]\n${transcript}\n\n위 통화를 분석해 기록하세요.`

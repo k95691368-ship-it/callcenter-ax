@@ -1,6 +1,23 @@
-# 보안 응답 헤더 — Cloudflare Pages가 모든 응답에 적용한다
+# 보안 응답 헤더 — Cloudflare Pages가 모든 응답에 적용한다.
+# CSP의 각 출처는 실제 코드에서 쓰는 것만 허용한다:
+#   cdn.jsdelivr.net       — Pretendard 폰트 CSS·woff2 (index.html)
+#   challenges.cloudflare.com — Turnstile 스크립트·위젯 iframe·검증 XHR (src/lib/turnstile.js)
+#   blob:                  — 녹음·업로드 오디오 재생, VOC CSV 내려받기
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: microphone=(self), camera=(), geolocation=(), payment=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+# 해시가 박힌 빌드 산출물은 내용이 바뀌면 파일명도 바뀐다 — 영구 캐시가 안전하다.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# 이름이 고정된 정적 파일은 하루 캐시 후 재검증한다.
+/og.png
+  Cache-Control: public, max-age=86400
+/favicon.svg
+  Cache-Control: public, max-age=86400
+/sample-call.wav
+  Cache-Control: public, max-age=86400

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
@@ -23,6 +23,8 @@ export default function AssistPage() {
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [copiedIdx, setCopiedIdx] = useState(-1)
+  const copyTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(copyTimerRef.current), [])
   const resultRef = useRef(null)
 
   async function suggest(e) {
@@ -48,7 +50,8 @@ export default function AssistPage() {
     try {
       await navigator.clipboard.writeText(text)
       setCopiedIdx(i)
-      setTimeout(() => setCopiedIdx(-1), 1500)
+      clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopiedIdx(-1), 1500)
     } catch {
       setError('클립보드 복사에 실패했습니다.')
     }

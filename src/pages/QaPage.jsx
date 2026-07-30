@@ -60,6 +60,8 @@ export default function QaPage() {
   }, [])
 
   const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(copyTimerRef.current), [])
   // 콜센터별 커스텀 체크리스트 — 라벨 + 키워드(쉼표 구분)를 서버 규칙 스캔에 합류시킨다.
   // 브라우저에만 보관되어 재방문에도 유지된다 (서버 미저장).
   const [customRules, setCustomRules] = usePersistentState('cc-qa-custom', EMPTY_CUSTOM)
@@ -87,7 +89,8 @@ export default function QaPage() {
     try {
       await navigator.clipboard.writeText(lines.join('\n'))
       setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
     } catch {
       setError('클립보드 복사에 실패했습니다.')
     }
@@ -191,6 +194,9 @@ export default function QaPage() {
                 <OssLlmNote model={result.llm_model} />
               </div>
 
+              {result.speaker_labeled === false && (
+                <ResultNotice text="이 전사에는 화자 라벨(상담사:/고객:)이 없어 고객 발화까지 함께 평가되었습니다. /stt의 화자 분리를 먼저 적용하면 상담사 발화만 채점됩니다." />
+              )}
               <div className="qa-score-head">
                 <ScoreGauge total={score.total} grade={score.grade} />
                 <div className="stat-row qa-breakdown">

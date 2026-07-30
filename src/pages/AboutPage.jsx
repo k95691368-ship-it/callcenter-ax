@@ -62,8 +62,11 @@ const LIVE_TABLE = [
   { feature: 'RAG 검색 (하이브리드)', mode: '라이브', how: 'bge-m3 벡터 + 키워드 랭킹 RRF 융합, 임베딩 실패 시 키워드 폴백' },
   { feature: 'QA 규칙 스캔 (멘트·금지 표현)', mode: '항상 실제 계산', how: '결정적 규칙 엔진 — 데모 모드에서도 진짜로 동작' },
   { feature: 'VOC 대시보드', mode: '항상 실제 계산', how: '내장 10건 + 직접 분석한 통화를 브라우저에 누적 집계 (서버 미전송)' },
-  { feature: 'LLM 분석·QA 정성 평가·RAG 답변', mode: '라이브', how: 'Claude Opus 5 가동 중 — 실패 시 오픈소스 LLM(Llama 3.3 70B)이 이어받는 3단 사다리' },
+  { feature: 'LLM 분석·QA 정성 평가·RAG 답변', mode: '라이브', how: 'Claude Opus 5 → 실패·예산 소진 시 오픈소스 LLM(Llama 3.3 70B) → 규칙 데모로 이어지는 3단 사다리 (현재 엔진은 위 배지 참고)' },
   { feature: '실시간 상담 지원 (Agent Assist)', mode: '라이브', how: 'RAG 근거 검색 + LLM 응대 제안 — 신규 기능 제안·구현' },
+  { feature: '화자 분리 (상담사/고객 태깅)', mode: '라이브', how: 'LLM 재구성 + 원문 보존 게이트(CER 15% 초과 시 원문 유지)' },
+  { feature: 'VOC AI 인사이트 리포트', mode: '라이브', how: '집계 수치만 전송 → LLM 리포트 + 숫자 환각 검증(허용 집합 대조)' },
+  { feature: '일괄 통화 분석', mode: '라이브', how: '통화 최대 5건을 LLM 호출 1회로 묶어 구조화 (결과 개수·순서 검증)' },
 ]
 
 export default function AboutPage() {
@@ -152,7 +155,7 @@ export default function AboutPage() {
           <div className="arch-row">
             <div className="arch-box">
               <strong>브라우저 (React 19)</strong>
-              <span>화면 5종 · CER 계산 · Turnstile 토큰 · 규칙 스캐너 공유</span>
+              <span>화면 8종 · CER 계산 · Turnstile 토큰 · 규칙 스캐너 공유</span>
             </div>
             <span className="arch-arrow">→</span>
             <div className="arch-box arch-core">
@@ -162,7 +165,7 @@ export default function AboutPage() {
             <span className="arch-arrow">→</span>
             <div className="arch-box">
               <strong>Workers AI (오픈소스 모델)</strong>
-              <span>Whisper large-v3-turbo (STT) · bge-m3 (임베딩)</span>
+              <span>Whisper large-v3-turbo·whisper (STT) · bge-m3 (임베딩) · Llama 3.3 70B (LLM 폴백)</span>
             </div>
           </div>
           <div className="arch-row">
@@ -172,7 +175,7 @@ export default function AboutPage() {
             </div>
             <div className="arch-box">
               <strong>Cloudflare D1 · Vectorize</strong>
-              <span>레이트리밋·텔레메트리 (개인정보 미저장) · RAG 사전 인덱스</span>
+              <span>레이트리밋(IP 해시 카운터, 날짜별 회전) · 텔레메트리(입력·IP 미저장) · RAG 사전 인덱스</span>
             </div>
             <div className="arch-box">
               <strong>안전장치</strong>
@@ -181,7 +184,8 @@ export default function AboutPage() {
           </div>
           <p className="arch-notes">
             업로드 음성은 전사 후 즉시 폐기합니다. 텔레메트리에는 입력 내용·IP를 저장하지
-            않습니다. 모든 샘플 통화·기업명("한빛텔레콤")은 가상 창작물입니다.
+            않고, 레이트리밋도 IP 원문 대신 날짜별로 회전하는 해시만 최대 24시간 보관합니다.
+            모든 샘플 통화·기업명("한빛텔레콤")은 가상 창작물입니다.
           </p>
         </div>
       </section>
@@ -278,7 +282,7 @@ export default function AboutPage() {
       )}
 
       <section className="about-section">
-        <h2>{stats && stats.summary.total > 0 ? '6' : '5'}. 제작기 — AI 코딩 에이전트와 하루 만에</h2>
+        <h2>{stats && stats.summary.total > 0 ? '6' : '5'}. 제작기 — AI 코딩 에이전트와 이틀간</h2>
         <div className="about-process">
           <div className="about-step">
             <strong>① 공고 분석</strong>
@@ -293,7 +297,7 @@ export default function AboutPage() {
             <p>QA 점수 계산·CER·규칙 스캐너·검색 랭킹은 순수 함수로 분리해 vitest 단위 테스트. AI 코딩 에이전트(Claude Code)와 페어로 진행.</p>
           </div>
           <div className="about-step">
-            <strong>④ 당일 배포</strong>
+            <strong>④ 첫날 배포</strong>
             <p>Cloudflare Pages + wrangler 원커맨드 배포. 완벽보다 배포를 앞세우고 개선기획안으로 사이클을 돌립니다.</p>
           </div>
         </div>

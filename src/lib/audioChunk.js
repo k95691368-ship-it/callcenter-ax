@@ -7,13 +7,19 @@ export const CHUNK_SECONDS = 55
 export const MAX_CHUNKS = 30 // 약 27분 — 시간당 전사 예산(30회) 안에서 완주 가능한 상한
 
 // 전체 길이를 청크 경계 목록으로 나눈다 (순수 함수)
+// chunkSec을 검증하지 않으면 0에서 length: Infinity, 음수에서 조용한 빈 배열이 나온다.
 export function planChunks(durationSec, chunkSec = CHUNK_SECONDS) {
-  if (!(durationSec > 0)) return []
-  const n = Math.ceil(durationSec / chunkSec)
+  if (!(durationSec > 0) || !(chunkSec > 0)) return []
+  const n = Math.min(Math.ceil(durationSec / chunkSec), MAX_CHUNKS)
   return Array.from({ length: n }, (_, i) => ({
     start: i * chunkSec,
     end: Math.min((i + 1) * chunkSec, durationSec),
   }))
+}
+
+// 상한을 넘는 길이인지 먼저 알려준다 (디코드·리샘플 비용을 치르기 전에 판단하기 위해)
+export function exceedsChunkLimit(durationSec, chunkSec = CHUNK_SECONDS) {
+  return durationSec > MAX_CHUNKS * chunkSec
 }
 
 // Float32 샘플을 16bit PCM 모노 WAV로 인코딩한다 (순수 함수)
@@ -64,6 +70,16 @@ export async function chunkAudioFile(file, { chunkSec = CHUNK_SECONDS } = {}) {
     decoded = await probe.decodeAudioData(raw)
   } finally {
     probe.close()
+  }
+  // 길이 검사를 리샘플·인코딩 전에 한다. 예전에는 전체를 렌더하고 청크 WAV까지
+  // 다 만든 뒤에 상한을 확인해서, 30분 파일 하나로 수백 MB를 할당한 다음
+  // "지원하지 않는다"는 오류를 냈다.
+  if (!(decoded.duration > 0)) {
+    throw new Error('음성 길이가 0초입니다. 다른 파일을 선택해주세요.')
+  }
+  if (exceedsChunkLimit(decoded.duration, chunkSec)) {
+    const limitMin = Math.floor((MAX_CHUNKS * chunkSec) / 60)
+    throw new Error(`약 ${limitMin}분(청크 ${MAX_CHUNKS}개) 이하 녹취까지 지원합니다. 파일을 나눠 올려주세요.`)
   }
   const frames = Math.ceil(decoded.duration * TARGET_RATE)
   const off = new OfflineAudioContext(1, frames, TARGET_RATE)

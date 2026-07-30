@@ -1,4 +1,4 @@
-import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
+import { json, errorJson, readJsonBody, clientKey } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
@@ -127,7 +127,7 @@ export async function onRequestPost(context) {
 
   const startedAt = Date.now()
 
-  const ip = clientIp(request)
+  const ip = await clientKey(request, env)
   if (!(await checkRateLimit(env, `cc:search:${ip}`, 10, 3600)))
     return errorJson('지식 검색은 시간당 10회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
   if (!(await checkRateLimit(env, 'cc:search:all', 60, 3600)))
@@ -173,7 +173,8 @@ export async function onRequestPost(context) {
   // 2단계: 답변 생성 사다리 — Claude(키 등록 시) → 오픈소스 LLM → 발췌 템플릿
   const canClaude = hasApiKey(env)
   const canWorkers = hasWorkersAi(env)
-  const budgetOk = await checkRateLimit(env, 'cc:daily:all', 300, 86400)
+  // 엔진이 아예 없으면 예산을 차감할 이유가 없다 — 불필요한 D1 왕복을 건너뛴다.
+  const budgetOk = canClaude || canWorkers ? await checkRateLimit(env, 'cc:daily:all', 300, 86400) : true
   if ((!canClaude && !canWorkers) || !budgetOk) {
     const t = templateAnswer(results)
     logCall(context, { endpoint: 'search', mode: `demo-${mode}`, startedAt })

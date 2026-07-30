@@ -4,7 +4,6 @@
 const SITE_KEY = '0x4AAAAAAD9ftUjgMxSP9zwt'
 
 let scriptPromise = null
-let container = null
 
 function loadScript() {
   if (window.turnstile) return Promise.resolve()
@@ -23,31 +22,41 @@ function loadScript() {
 export async function getTurnstileToken() {
   try {
     await loadScript()
-    if (!container) {
-      container = document.createElement('div')
-      container.style.cssText = 'position:fixed;bottom:0;right:0;width:0;height:0;overflow:hidden'
-      document.body.appendChild(container)
-    }
+    // 요청마다 새 컨테이너를 만든다. 예전에는 모듈 단위로 하나를 공유했는데,
+    // 원클릭 파이프라인처럼 여러 요청이 동시에 토큰을 받으려 하면 같은 엘리먼트에
+    // render가 겹쳐 대부분이 토큰 없이 끝났다. Turnstile 시크릿을 등록한 순간
+    // 그 요청들이 403으로 막히는 함정이었다.
+    const box = document.createElement('div')
+    box.style.cssText = 'position:fixed;bottom:0;right:0;width:0;height:0;overflow:hidden'
+    document.body.appendChild(box)
+
     return await new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(null), 15000)
-      const done = (id, token) => {
+      let settled = false
+      let widgetId = null
+      const finish = (token) => {
+        if (settled) return
+        settled = true
         clearTimeout(timer)
         try {
-          window.turnstile.remove(id)
+          if (widgetId != null) window.turnstile.remove(widgetId)
         } catch {
           /* 이미 제거된 경우 무시 */
         }
+        box.remove()
         resolve(token)
       }
-      const id = window.turnstile.render(container, {
-        sitekey: SITE_KEY,
-        callback: (token) => done(id, token),
-        'error-callback': () => done(id, null),
-      })
-      if (id == null) {
-        clearTimeout(timer)
-        resolve(null)
+      const timer = setTimeout(() => finish(null), 15000)
+      try {
+        widgetId = window.turnstile.render(box, {
+          sitekey: SITE_KEY,
+          callback: (token) => finish(token),
+          'error-callback': () => finish(null),
+        })
+      } catch {
+        finish(null)
+        return
       }
+      if (widgetId == null) finish(null)
     })
   } catch {
     return null

@@ -1,4 +1,4 @@
-import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
+import { json, errorJson, readJsonBody, clientKey } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
@@ -59,14 +59,20 @@ export async function onRequestPost(context) {
     })
   }
 
-  if (!(await checkRateLimit(env, 'cc:daily:all', 300, 86400)))
-    return errorJson('오늘의 전사 예산이 소진되었습니다. 내일 다시 시도해주세요.', 429)
-  const ip = clientIp(request)
-  // 장시간 분할 전사(청크 최대 30개)가 한 번에 완주할 수 있도록 상한을 맞춘다
-  if (!(await checkRateLimit(env, `cc:stt:${ip}`, 30, 3600)))
-    return errorJson('녹취 전사는 시간당 30회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
-  if (!(await checkRateLimit(env, 'cc:stt:all', 60, 3600)))
+  // 검사 순서가 중요하다: 거부될 요청이 공유 예산을 먼저 태우면 한 IP가 전체 서비스의
+  // 하루치를 소진시킬 수 있다. 좁은 제한(IP)부터 확인하고 일일 예산은 마지막에 차감한다.
+  //
+  // 전사는 Whisper만 쓰고 LLM(Claude)을 쓰지 않으므로 LLM 일일 예산과 버킷을 나눈다.
+  // 예전에는 같은 버킷을 써서, 27분 녹취 한 건(청크 30개)이 사이트 전체의 하루 예산
+  // 300건 중 30건을 태웠다 — 긴 파일 열 건이면 그날 나머지 기능이 전부 데모로 강등됐다.
+  const ip = await clientKey(request, env)
+  // 분할 전사(청크 최대 30개) 한 번이 다른 시도와 겹쳐도 완주할 수 있게 여유를 둔다
+  if (!(await checkRateLimit(env, `cc:stt:${ip}`, 40, 3600)))
+    return errorJson('녹취 전사는 시간당 40회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
+  if (!(await checkRateLimit(env, 'cc:stt:all', 90, 3600)))
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
+  if (!(await checkRateLimit(env, 'cc:daily:stt', 600, 86400)))
+    return errorJson('오늘의 전사 예산이 소진되었습니다. 내일 다시 시도해주세요.', 429)
 
   try {
     // 모델별 입력 형식: turbo=base64 문자열, base=바이트 배열

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
@@ -58,6 +58,8 @@ export default function AnalyzePage() {
   }, [])
 
   const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(copyTimerRef.current), [])
 
   // 분석 결과를 실무 인수인계 형식 텍스트로 복사한다
   async function copyResult() {
@@ -71,7 +73,8 @@ export default function AnalyzePage() {
     try {
       await navigator.clipboard.writeText(lines.join('\n'))
       setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
     } catch {
       setError('클립보드 복사에 실패했습니다.')
     }
@@ -114,8 +117,11 @@ export default function AnalyzePage() {
   const [batchResult, setBatchResult] = useState(null)
   const [batchSaved, setBatchSaved] = useState(false)
 
+  // 버튼 라벨에서 매 렌더 호출하면 무관한 리렌더에도 정규식 분할이 반복 실행된다.
+  const batchParts = useMemo(() => splitCalls(batchText), [batchText])
+
   async function analyzeBatch() {
-    const parts = splitCalls(batchText)
+    const parts = batchParts
     if (parts.length < 2) {
       setError('일괄 분석은 통화 2건 이상부터 가능합니다. 통화 사이를 빈 줄로 구분해주세요.')
       return
@@ -288,7 +294,7 @@ export default function AnalyzePage() {
         />
         <div className="hub-cta result-actions">
           <button type="button" className="btn-primary" onClick={analyzeBatch} disabled={batchLoading}>
-            {batchLoading ? '일괄 분석 중... (10~30초)' : `일괄 분석하기 (${splitCalls(batchText).length}건)`}
+            {batchLoading ? '일괄 분석 중... (10~30초)' : `일괄 분석하기 (${batchParts.length}건)`}
           </button>
           {batchResult && (
             <button type="button" className="btn-ghost" onClick={saveBatchToVoc} disabled={batchSaved}>

@@ -27,12 +27,17 @@ function TrendChart({ points }) {
   const x = (i) =>
     PAD.left + (points.length < 2 ? 0.5 : i / (points.length - 1)) * (W - PAD.left - PAD.right)
   const y = (v) => H - PAD.bottom - (v / maxY) * (H - PAD.top - PAD.bottom)
+  const tickStep = Math.max(1, Math.ceil(maxY / 4))
+  const gridTicks = []
+  for (let v = 0; v <= maxY; v += tickStep) gridTicks.push(v)
   const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(p.count)}`).join(' ')
   const last = points[points.length - 1]
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="voc-trend" role="img" aria-label="일별 통화 건수 추이">
-      {Array.from({ length: maxY + 1 }, (_, v) => (
+      {/* 격자선을 값마다 그리면 건수가 늘수록 선이 늘어난다 — 40건이면 41줄이 겹친다.
+          눈금 개수를 고정하고 간격만 데이터에 맞춰 늘린다. */}
+      {gridTicks.map((v) => (
         <g key={v}>
           <line x1={PAD.left} y1={y(v)} x2={W - PAD.right} y2={y(v)} stroke="var(--line)" strokeWidth="1" />
           <text x={PAD.left - 8} y={y(v) + 4} textAnchor="end" className="voc-axis-text">
@@ -96,8 +101,13 @@ export default function VocPage() {
     const a = document.createElement('a')
     a.href = url
     a.download = `voc-리포트-${new Date().toISOString().slice(0, 10)}.csv`
+    // 앵커를 DOM에 붙이지 않으면 일부 브라우저가 클릭을 무시하고, 다운로드 처리는
+    // 비동기라 click 직후 URL을 해제하면 저장이 조용히 실패한다.
+    a.style.display = 'none'
+    document.body.appendChild(a)
     a.click()
-    URL.revokeObjectURL(url)
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   async function generateReport() {
@@ -210,12 +220,12 @@ export default function VocPage() {
         </section>
 
         <section className="voc-card voc-card-wide">
-          <h2>일별 통화 추이 (7/21 ~ 7/27)</h2>
+          <h2>일별 통화 추이 ({agg.byDate[0]?.date.slice(5).replace('-', '/')} ~ {agg.byDate[agg.byDate.length - 1]?.date.slice(5).replace('-', '/')})</h2>
           <TrendChart points={agg.byDate} />
         </section>
 
         <section className="voc-card voc-card-wide">
-          <h2>AI 인사이트 리포트 <span className="voc-card-sub">(집계 수치만 전송 — 통화 원문 미전송)</span></h2>
+          <h2>AI 인사이트 리포트 <span className="voc-card-sub">(집계 수치 + 에스컬레이션 통화 제목 최대 6건 전송 — 통화 전문 미전송, 서버 미저장)</span></h2>
           {!report && (
             <>
               <p className="result-empty-sub">
@@ -261,7 +271,7 @@ export default function VocPage() {
           {agg.escalated.map((c) => (
             <div className="review-card escalated voc-esc" key={c.id}>
               <div className="review-head">
-                <span className={`cat-badge ${CATEGORY_BADGE[c.analysis.category]}`}>{c.analysis.category}</span>
+                <span className={`cat-badge ${CATEGORY_BADGE[c.analysis.category] || 'cat-etc'}`}>{c.analysis.category}</span>
                 <span className="escalate-badge">⚠ 담당자 확인 필요</span>
                 <span className="usage-note">
                   {c.date} · {c.agent || '내 분석'}
@@ -304,7 +314,7 @@ export default function VocPage() {
                     )}
                   </td>
                   <td>
-                    <span className={`cat-badge ${CATEGORY_BADGE[c.analysis.category]}`}>{c.analysis.category}</span>
+                    <span className={`cat-badge ${CATEGORY_BADGE[c.analysis.category] || 'cat-etc'}`}>{c.analysis.category}</span>
                   </td>
                   <td>{c.analysis.sentiment}</td>
                   <td>{typeof c.minutes === 'number' ? `${c.minutes}분` : '—'}</td>

@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
-import { OssLlmNote, UsageNote, WorkersAiNote } from '../components/ResultMeta.jsx'
+import { OssLlmNote, UsageNote, WorkersAiNote, ResultNotice } from '../components/ResultMeta.jsx'
 import { applyLexicon } from '../lib/domainLexicon.js'
 import { saveMyCall } from '../lib/myCalls.js'
 import { MAX_RULE_SCORE } from '../lib/qaRules.js'
 import { useRecorder } from '../lib/useRecorder.js'
 import { buildPipelineReport } from '../lib/pipelineReport.js'
+// base64 변환은 audioChunk의 것을 그대로 쓴다 — 같은 코드가 두 곳에 있으면
+// 한쪽만 고쳐지는 날이 온다.
+import { bufferToB64 } from '../lib/audioChunk.js'
 
 // 공고의 담당업무 파이프라인(녹취→STT→분석→QA→VOC)을 버튼 하나로 통과시키는 시연.
 // 각 단계는 실제 프로덕션 API를 그대로 호출한다 — 별도의 시연용 가짜 경로가 없다.
@@ -21,16 +24,6 @@ const STEPS = [
   { id: 'voc', title: '⑥ VOC 누적', desc: '대시보드에 분석 결과 합산' },
 ]
 
-function b64FromBuffer(buf) {
-  const bytes = new Uint8Array(buf)
-  let bin = ''
-  const CHUNK = 0x8000
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-  }
-  return btoa(bin)
-}
-
 export default function PipelinePage() {
   const [stage, setStage] = useState(-1) // -1 대기, 0~5 진행, 6 완료
   const [error, setError] = useState('')
@@ -41,12 +34,18 @@ export default function PipelinePage() {
   const [qa, setQa] = useState(null)
   const [copied, setCopied] = useState(false)
 
+  // 단계별 실패를 기록하되 파이프라인 전체를 멈추지는 않는다 (STT 실패만 치명적)
+  const [stageErrors, setStageErrors] = useState({})
+
   // 6단계 결과 전체를 인수인계 문서 한 장으로 복사한다
+  const copyTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(copyTimerRef.current), [])
   async function copyReport() {
     try {
-      await navigator.clipboard.writeText(buildPipelineReport({ stt, lex, dia, analysis, qa }))
+      await navigator.clipboard.writeText(buildPipelineReport({ stt, lex, dia, analysis, qa, stageErrors }))
       setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
     } catch {
       setError('클립보드 복사에 실패했습니다.')
     }
@@ -69,9 +68,6 @@ export default function PipelinePage() {
     onError: setError,
   })
 
-  // 단계별 실패를 기록하되 파이프라인 전체를 멈추지는 않는다 (STT 실패만 치명적)
-  const [stageErrors, setStageErrors] = useState({})
-
   async function run(micAudio) {
     setError('')
     setStt(null)
@@ -87,7 +83,7 @@ export default function PipelinePage() {
         micAudio instanceof File
           ? await micAudio.arrayBuffer()
           : await fetch('/sample-call.wav').then((r) => r.arrayBuffer())
-      const sttRes = await postJson('/api/cc/stt', { audio_b64: b64FromBuffer(buf) })
+      const sttRes = await postJson('/api/cc/stt', { audio_b64: bufferToB64(buf) })
       setStt(sttRes)
 
       // ② 도메인 보정
@@ -206,6 +202,7 @@ export default function PipelinePage() {
                   {stt.demo && <DemoBadge />}
                   <WorkersAiNote model={stt.model} latencyMs={stt.latency} />
                 </div>
+                <ResultNotice text={stt.notice} />
                 <p className="pipe-text">"{stt.text}"</p>
               </div>
             )}
@@ -234,6 +231,7 @@ export default function PipelinePage() {
                   <UsageNote usage={dia.usage} />
                   <OssLlmNote model={dia.llm_model} />
                 </div>
+                <ResultNotice text={dia.notice} />
                 <p className="pipe-text">{dia.formatted}</p>
               </div>
             )}
@@ -245,6 +243,7 @@ export default function PipelinePage() {
                   <UsageNote usage={analysis.usage} />
                   <OssLlmNote model={analysis.llm_model} />
                 </div>
+                <ResultNotice text={analysis.notice} />
                 <div className="chip-row">
                   <span className="cat-badge cat-ship">유형: {analysis.category}</span>
                   <span className="cat-badge cat-etc">감정: {analysis.sentiment}</span>
@@ -265,6 +264,7 @@ export default function PipelinePage() {
                   <UsageNote usage={qa.usage} />
                   <OssLlmNote model={qa.llm_model} />
                 </div>
+                <ResultNotice text={qa.notice} />
                 <div className="stat-row">
                   <div className="stat-tile">
                     <span className="stat-label">총점</span>

@@ -1,4 +1,4 @@
-import { json, errorJson, readJsonBody, clientIp } from '../../_lib/http.js'
+import { json, errorJson, readJsonBody, clientKey } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
@@ -109,27 +109,30 @@ export async function onRequestPost(context) {
     return errorJson('보안 검증에 실패했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요.', 403)
 
   const startedAt = Date.now()
+
+  // 제한 검사를 임베딩보다 먼저 한다. 예전에는 RAG 검색(질의 + FAQ 8건 임베딩)을
+  // 먼저 실행해서, 시간당 한도를 넘긴 요청도 429를 받기 전에 임베딩 비용을 태웠다.
+  const ip = await clientKey(request, env)
+  if (!(await checkRateLimit(env, `cc:assist:${ip}`, 8, 3600)))
+    return errorJson('상담 지원 제안은 시간당 8회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
+  if (!(await checkRateLimit(env, 'cc:assist:all', 50, 3600)))
+    return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
+
   const query = extractQuery(dialogue)
   const docs = await ragSearch(env, query)
   const publicDocs = docs.map((d) => ({ id: d.id, title: d.title, body: d.body }))
 
   const canClaude = hasApiKey(env)
   const canWorkers = hasWorkersAi(env)
-  const budgetOk = await checkRateLimit(env, 'cc:daily:all', 300, 86400)
+  const budgetOk = canClaude || canWorkers ? await checkRateLimit(env, 'cc:daily:all', 300, 86400) : true
   if ((!canClaude && !canWorkers) || !budgetOk) {
-    logCall(context, { endpoint: 'assist', mode: 'demo', startedAt })
+    logCall(context, { endpoint: 'assist', mode: budgetOk ? 'demo' : 'budget', startedAt })
     return json({
       ...demoAssist(docs, dialogue),
       docs: publicDocs,
       notice: budgetOk ? undefined : '오늘의 라이브 예산이 소진되어 예시 제안을 표시합니다.',
     })
   }
-
-  const ip = clientIp(request)
-  if (!(await checkRateLimit(env, `cc:assist:${ip}`, 8, 3600)))
-    return errorJson('상담 지원 제안은 시간당 8회까지 가능합니다. 잠시 후 다시 시도해주세요.', 429)
-  if (!(await checkRateLimit(env, 'cc:assist:all', 50, 3600)))
-    return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
 
   try {
     const contextDocs = docs.map((d) => `[문서 id=${d.id}] ${d.title}\n${d.body}`).join('\n\n')

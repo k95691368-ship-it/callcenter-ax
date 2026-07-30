@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
@@ -9,6 +9,8 @@ import { applyLexicon, buildCustomLexicon, MAX_CUSTOM_TERMS } from '../lib/domai
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { useRecorder } from '../lib/useRecorder.js'
 import { chunkAudioFile, bufferToB64, CHUNK_SECONDS, MAX_CHUNKS } from '../lib/audioChunk.js'
+// 화면에 적는 상한은 코드 상수에서 계산한다 — 문구와 동작이 어긋나지 않게.
+const CHUNK_LIMIT_MIN = Math.floor((MAX_CHUNKS * CHUNK_SECONDS) / 60)
 import { usePersistentState } from '../lib/persist.js'
 
 const CHUNK_THRESHOLD_BYTES = 4 * 1024 * 1024
@@ -20,8 +22,12 @@ const GEN_STEPS = [
   '전사 결과를 정리하고 있어요',
 ]
 
-const MAX_FILE_BYTES = 6 * 1024 * 1024
 const MAX_COMPARE_BYTES = 2 * 1024 * 1024
+// 브라우저 디코딩·리샘플은 원본 크기의 몇 배를 메모리에 올린다. 상한이 없으면
+// 30MB짜리 파일 하나로 탭이 죽으므로, 분할 전사에 들어가기 전에 먼저 막는다.
+const MAX_UPLOAD_BYTES = 40 * 1024 * 1024
+// CER은 O(n·m) DP다. 타이핑마다 재계산되므로 긴 전사에서는 계산을 건너뛴다.
+const MAX_CER_CELLS = 2_000_000
 
 // data URL에서 base64 본문만 추출한다
 function fileToBase64(file) {
@@ -53,15 +59,30 @@ export default function SttPage() {
   const [diaMeta, setDiaMeta] = useState(null)
   const [audioUrl, setAudioUrl] = useState('')
   const resultRef = useRef(null)
+  // 전사 요청이 진행 중인지 — 버튼 disabled만으로는 막히지 않는 이중 실행을 막는다.
+  // (샘플 데모는 wav를 받는 동안 loading이 아직 false여서 두 번 클릭이 가능했다)
+  const busyRef = useRef(false)
+  const audioUrlRef = useRef('')
 
   // 선택·녹음된 음성을 미리 들어볼 수 있게 objectURL을 관리한다
   function setFileWithPreview(f) {
     setFile(f)
     setAudioUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev)
-      return f ? URL.createObjectURL(f) : ''
+      const next = f ? URL.createObjectURL(f) : ''
+      audioUrlRef.current = next
+      return next
     })
   }
+
+  // 페이지를 떠날 때 마지막 objectURL을 해제한다 — 교체할 때만 해제하면
+  // 마지막 것이 document 수명 동안 Blob을 붙잡고 남는다.
+  useEffect(
+    () => () => {
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current)
+    },
+    []
+  )
 
   const recorder = useRecorder({
     onDone: (f) => {
@@ -72,16 +93,25 @@ export default function SttPage() {
   })
 
   const transcript = tab === 'file' ? (result?.text ?? '') : text
+  // CER은 화자 라벨이 붙기 전 전사로 계산한다. 라벨("상담사: ")이 섞인 텍스트를
+  // 정답 스크립트와 비교하면 줄마다 편집거리가 늘어 turbo가 base보다 나쁜 것처럼 뒤집힌다.
+  const cerBase = tab === 'file' ? (result?.plainText ?? result?.text ?? '') : text
+
+  // 긴 전사에서는 DP 셀 수가 폭발해 타이핑마다 메인 스레드가 멈춘다 — 계산을 건너뛴다.
+  const cerTooLong = useMemo(
+    () => refScript.trim().length * cerBase.trim().length > MAX_CER_CELLS,
+    [refScript, cerBase]
+  )
 
   const cer = useMemo(() => {
-    if (!refScript.trim() || !transcript.trim()) return null
-    return computeCer(refScript, transcript)
-  }, [refScript, transcript])
+    if (!refScript.trim() || !cerBase.trim() || cerTooLong) return null
+    return computeCer(refScript, cerBase)
+  }, [refScript, cerBase, cerTooLong])
 
   const altCer = useMemo(() => {
-    if (!refScript.trim() || !altResult?.text) return null
+    if (!refScript.trim() || !altResult?.text || cerTooLong) return null
     return computeCer(refScript, altResult.text)
-  }, [refScript, altResult])
+  }, [refScript, altResult, cerTooLong])
 
   // 우리 콜센터만의 오전사→정정 쌍 — 심사자가 도메인 튜닝을 직접 실험할 수 있다.
   // 브라우저에만 보관되어 재방문에도 유지된다 (서버 미저장).
@@ -95,13 +125,13 @@ export default function SttPage() {
 
   // 도메인 용어 보정(튜닝 1단계) — 보정이 일어난 경우에만 전/후 CER을 비교한다
   const corrected = useMemo(
-    () => applyLexicon(transcript, buildCustomLexicon(customTerms)),
-    [transcript, customTerms]
+    () => applyLexicon(cerBase, buildCustomLexicon(customTerms)),
+    [cerBase, customTerms]
   )
   const correctedCer = useMemo(() => {
-    if (!refScript.trim() || corrected.applied.length === 0) return null
+    if (!refScript.trim() || corrected.applied.length === 0 || cerTooLong) return null
     return computeCer(refScript, corrected.text)
-  }, [refScript, corrected])
+  }, [refScript, corrected, cerTooLong])
 
   // 장시간 녹취 분할 전사 — 6MB·단발 호출 한계를 클라이언트 분할로 돌파한다
   const [chunkNote, setChunkNote] = useState('')
@@ -109,28 +139,48 @@ export default function SttPage() {
     setLoading(true)
     setError('')
     setAltResult(null)
+    const texts = []
+    let chunkCount = 0
+    let demoChunks = 0
+    const startedAt = Date.now()
+    const commit = (note) => {
+      const merged = texts.filter(Boolean).join(' ')
+      if (!merged) return false
+      setResult({
+        // 청크가 데모 전사(AI 미연결)로 돌아왔다면 라이브라고 표시하지 않는다
+        demo: demoChunks > 0,
+        text: merged,
+        plainText: merged,
+        model: `${MODELS_LABEL} · 분할 전사 ${texts.length}/${chunkCount}청크`,
+        latency: Date.now() - startedAt,
+        chunked: texts.length,
+        notice: note,
+      })
+      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+      return true
+    }
     try {
       setChunkNote('긴 녹취를 디코딩·분할하고 있어요 (16kHz 모노 리샘플)...')
       const chunks = await chunkAudioFile(theFile)
-      if (chunks.length > MAX_CHUNKS)
-        throw new Error(`약 ${Math.round((MAX_CHUNKS * CHUNK_SECONDS) / 60)}분(청크 ${MAX_CHUNKS}개) 이하 녹취까지 지원합니다.`)
-      const texts = []
-      const startedAt = Date.now()
+      chunkCount = chunks.length
       for (let i = 0; i < chunks.length; i++) {
         setChunkNote(`청크 ${i + 1}/${chunks.length} 전사 중 (${Math.round(chunks[i].start)}~${Math.round(chunks[i].end)}초)...`)
         const r = await postJson('/api/cc/stt', { audio_b64: bufferToB64(chunks[i].wav) })
+        if (r.demo) demoChunks += 1
         texts.push((r.text || '').trim())
       }
-      setResult({
-        demo: false,
-        text: texts.filter(Boolean).join(' '),
-        model: `${MODELS_LABEL} · 분할 전사 ${chunks.length}청크`,
-        latency: Date.now() - startedAt,
-        chunked: chunks.length,
-      })
-      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+      if (!commit(undefined)) {
+        setError('전사 결과가 비어 있습니다. 무음이거나 인식 가능한 발화가 없는 파일로 보입니다.')
+      }
     } catch (err) {
-      setError(err.name === 'EncodingError' ? '이 형식은 브라우저가 디코드하지 못했습니다. mp3/wav/m4a로 시도해주세요.' : err.message)
+      const message =
+        err.name === 'EncodingError' || err.name === 'NotSupportedError'
+          ? '이 형식은 브라우저가 디코드하지 못했습니다. mp3/wav/m4a로 시도해주세요.'
+          : err.message
+      // 여기서 그냥 throw하면 이미 성공한 청크 수십 개가 통째로 버려진다.
+      // 30분을 기다린 사용자가 빈 화면을 받는 대신, 완료된 분량이라도 살려서 보여준다.
+      const saved = commit(`${chunkCount}청크 중 ${texts.length}청크까지 전사한 뒤 중단됐습니다. (${message})`)
+      setError(saved ? `전사가 중간에 중단됐습니다 — 완료된 부분만 표시합니다. (${message})` : message)
     } finally {
       setLoading(false)
       setChunkNote('')
@@ -138,43 +188,55 @@ export default function SttPage() {
   }
 
   async function runTranscribe(theFile, withCompare) {
+    if (busyRef.current) return
     if (!theFile) {
       setError('음성 파일을 선택하거나 마이크로 녹음해주세요.')
+      return
+    }
+    if (theFile.size === 0) {
+      setError('빈 파일입니다. 다른 음성 파일을 선택해주세요.')
+      return
+    }
+    if (theFile.size > MAX_UPLOAD_BYTES) {
+      setError(`파일이 너무 큽니다 (${Math.round(theFile.size / 1024 / 1024)}MB). ${MAX_UPLOAD_BYTES / 1024 / 1024}MB 이하로 올려주세요.`)
       return
     }
     if (withCompare && theFile.size > MAX_COMPARE_BYTES) {
       setError('모델 비교는 2MB 이하의 짧은 음성으로만 가능합니다. 비교를 끄거나 짧게 녹음해주세요.')
       return
     }
-    // 6MB를 넘는 긴 녹취는 오류가 아니라 분할 전사로 자동 전환한다
-    if (!withCompare && theFile.size > CHUNK_THRESHOLD_BYTES) {
-      return transcribeLong(theFile)
-    }
-    if (theFile.size > MAX_FILE_BYTES) {
-      setError('모델 비교 모드에서는 6MB 이하 파일만 가능합니다.')
-      return
-    }
-    setLoading(true)
-    setError('')
-    setAltResult(null)
+    busyRef.current = true
     try {
-      const audio_b64 = await fileToBase64(theFile)
-      const data = await postJson('/api/cc/stt', { audio_b64, content_type: theFile.type })
-      setResult(data)
-      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-      if (withCompare) {
-        // 같은 음성을 base whisper로도 전사해 CER을 비교한다 (성능 평가 시연)
-        try {
-          const alt = await postJson('/api/cc/stt', { audio_b64, content_type: theFile.type, model: 'base' })
-          setAltResult(alt)
-        } catch (altErr) {
-          setAltResult({ failed: true, notice: `비교 모델 전사 실패: ${altErr.message}` })
-        }
+      // 단발 호출 한도(6MB)를 넘는 긴 녹취는 오류가 아니라 분할 전사로 자동 전환한다.
+      // 비교 모드는 위에서 2MB로 이미 걸러졌으므로 여기 오는 건 비교가 아닌 경로다.
+      if (theFile.size > CHUNK_THRESHOLD_BYTES) {
+        await transcribeLong(theFile)
+        return
       }
-    } catch (err) {
-      setError(err.message)
+      setLoading(true)
+      setError('')
+      setAltResult(null)
+      try {
+        const audio_b64 = await fileToBase64(theFile)
+        const data = await postJson('/api/cc/stt', { audio_b64 })
+        setResult({ ...data, plainText: data.text })
+        requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+        if (withCompare) {
+          // 같은 음성을 base whisper로도 전사해 CER을 비교한다 (성능 평가 시연)
+          try {
+            const alt = await postJson('/api/cc/stt', { audio_b64, model: 'base' })
+            setAltResult(alt)
+          } catch (altErr) {
+            setAltResult({ failed: true, notice: `비교 모델 전사 실패: ${altErr.message}` })
+          }
+        }
+      } catch (err) {
+        setError(err.message)
+      } finally {
+        setLoading(false)
+      }
     } finally {
-      setLoading(false)
+      busyRef.current = false
     }
   }
 
@@ -186,26 +248,43 @@ export default function SttPage() {
   // 내장 샘플 음성(합성 목소리) 원클릭 시연 — 정답 스크립트까지 채워 CER이 바로 계산된다
   const SAMPLE_SCRIPT = '안녕하세요. 한빛텔레콤 상담사입니다. 상담 품질 향상을 위해 통화 내용이 녹음됩니다.'
   async function runSampleDemo() {
+    if (busyRef.current || loading) return
+    // wav를 받는 동안에도 버튼을 잠근다 — 예전에는 이 사이에 두 번 클릭하면
+    // 비교 모드 전사가 2회 병렬로 나가 유료 호출 4건이 발생했다.
+    setLoading(true)
+    setError('')
     try {
       const res = await fetch('/sample-call.wav')
+      // 404가 SPA 폴백으로 HTML을 돌려주면 blob()은 성공한다 — 상태코드를 반드시 본다.
+      if (!res.ok) throw new Error(`샘플 음성을 불러오지 못했습니다 (${res.status}).`)
       const blob = await res.blob()
+      if (blob.size === 0) throw new Error('샘플 음성이 비어 있습니다.')
       const f = new File([blob], '내장 샘플 음성.wav', { type: 'audio/wav' })
       setFileWithPreview(f)
       setRefScript(SAMPLE_SCRIPT)
-      runTranscribe(f, true)
-    } catch {
-      setError('샘플 음성을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.')
+      setCompare(true)
+      setLoading(false)
+      await runTranscribe(f, true)
+    } catch (err) {
+      setLoading(false)
+      setError(err.message || '샘플 음성을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.')
     }
   }
 
   // 화자 분리 — 통짜 전사를 상담사:/고객: 형식으로 재구성 (Auto QA 규칙 층 연결용)
   async function diarize() {
-    if (!result?.text?.trim()) return
+    const base = result?.text?.trim()
+    if (!base) return
     setDiarizing(true)
     setError('')
     try {
-      const data = await postJson('/api/cc/diarize', { transcript: result.text })
-      setResult({ ...result, text: data.formatted })
+      const data = await postJson('/api/cc/diarize', { transcript: base })
+      // 서버는 6000자까지만 처리한다. 잘린 뒷부분을 원문 그대로 이어 붙여야
+      // 화자 분리 한 번에 긴 전사의 뒷부분이 소실되지 않는다.
+      const tail = data.truncated ? base.slice(data.processed_chars) : ''
+      const merged = tail ? `${data.formatted}\n${tail}` : data.formatted
+      // 함수형 업데이트 — 응답을 기다리는 동안 사용자가 전사를 고쳤을 수 있다.
+      setResult((prev) => ({ ...prev, text: merged, plainText: prev.plainText ?? prev.text }))
       setDiaMeta(data)
     } catch (err) {
       setError(err.message)
@@ -283,13 +362,28 @@ export default function SttPage() {
             </div>
 
             <label>
-              또는 음성 파일 선택 (mp3/wav/m4a/ogg · 6MB 초과 긴 녹취는 자동 분할 전사, 최대 약 27분)
+              또는 음성 파일 선택 (mp3/wav/m4a/ogg · 4MB 초과 긴 녹취는 자동 분할 전사, 최대 약 {CHUNK_LIMIT_MIN}분)
               <input
                 type="file"
                 accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm"
                 onChange={(e) => {
-                  setFileWithPreview(e.target.files?.[0] ?? null)
+                  const f = e.target.files?.[0] ?? null
                   setError('')
+                  // accept는 대화상자의 힌트일 뿐이다. "모든 파일"로 바꿔 고르거나
+                  // 드래그하면 PDF도 들어오므로, 서버로 보내기 전에 여기서 막는다.
+                  if (f && !(f.type.startsWith('audio/') || /\.(mp3|wav|m4a|ogg|webm|flac|aac)$/i.test(f.name))) {
+                    setFileWithPreview(null)
+                    e.target.value = ''
+                    setError('음성 파일이 아닙니다. mp3/wav/m4a/ogg/webm 파일을 선택해주세요.')
+                    return
+                  }
+                  if (f && f.size === 0) {
+                    setFileWithPreview(null)
+                    e.target.value = ''
+                    setError('빈 파일입니다. 다른 음성 파일을 선택해주세요.')
+                    return
+                  }
+                  setFileWithPreview(f)
                 }}
               />
             </label>
@@ -357,10 +451,13 @@ export default function SttPage() {
                 <WorkersAiNote model={result.model} latencyMs={result.latency} />
               </div>
               <label className="stt-out-label">
-                전사 결과 (수정 가능)
+                {diarizing ? '전사 결과 (화자 분리 중에는 수정할 수 없어요)' : '전사 결과 (수정 가능)'}
                 <textarea
                   value={result.text}
-                  onChange={(e) => setResult({ ...result, text: e.target.value })}
+                  // 화자 분리 응답이 돌아오면 텍스트를 교체하므로, 그동안의 편집은
+                  // 어차피 덮인다. 잠가두는 편이 "고친 게 사라지는" 경험보다 정직하다.
+                  readOnly={diarizing}
+                  onChange={(e) => setResult((prev) => ({ ...prev, text: e.target.value }))}
                   rows={8}
                 />
               </label>
@@ -429,6 +526,9 @@ export default function SttPage() {
                   </div>
                 ))}
               </details>
+              {cerTooLong && (
+                <ResultNotice text="전사와 정답 스크립트가 길어 CER 계산을 생략했습니다. (편집거리 계산이 브라우저를 멈추게 하므로, 짧은 구간으로 나눠 비교해 주세요)" />
+              )}
               {cer && (
                 <div className="stat-row">
                   <div className="stat-tile">

@@ -50,9 +50,18 @@ describe('runLlmLadder', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it('둘 다 실패하면 Claude의 원래 오류를 던진다', async () => {
+  it('오픈소스 층이 없으면 Claude의 원래 오류를 던진다', async () => {
     vi.stubGlobal('fetch', async () => ({ ok: false, status: 400, json: async () => ({}) }))
     await expect(runLlmLadder({ CLAUDE_API_KEY: 'k' }, OPTS)).rejects.toThrow(/혼잡/)
+  })
+
+  it('두 층이 모두 실패하면 아래층 오류가 아니라 Claude 오류를 보여준다', async () => {
+    // 아래층 오류가 위층 오류를 덮어쓰면 "무엇이 먼저 무너졌는지"가 사라진다.
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 400, json: async () => ({}) }))
+    const workersDown = { run: async () => { throw new Error('오픈소스 LLM 응답이 지연되고 있습니다') } }
+    const err = await runLlmLadder({ CLAUDE_API_KEY: 'k', AI: workersDown }, OPTS).catch((e) => e)
+    expect(err.message).toMatch(/혼잡/)
+    expect(err.cause?.message).toMatch(/오픈소스/)
   })
 
   it('엔진이 하나도 없으면 명시적 오류를 던진다', async () => {
@@ -61,12 +70,12 @@ describe('runLlmLadder', () => {
 })
 
 describe('Claude 일일 예산 칸막이', () => {
-  // 카운트가 상한을 넘긴 상태를 흉내내는 D1 스텁 — Claude를 건너뛰고 오픈소스로 가야 한다
+  // 상한이 차서 조건부 INSERT가 아무 행도 넣지 못한 상태(meta.changes = 0)를 흉내내는 D1 스텁
+  // — Claude를 건너뛰고 오픈소스로 가야 한다
   const fullBucketDb = {
     prepare: () => ({
-      bind: () => ({ run: async () => ({}), first: async () => ({ count: 999 }) }),
-      run: async () => ({}),
-      first: async () => ({ count: 999 }),
+      bind: () => ({ run: async () => ({ meta: { changes: 0 } }), first: async () => ({ count: 999 }) }),
+      run: async () => ({ meta: { changes: 0 } }),
     }),
   }
 

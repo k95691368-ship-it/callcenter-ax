@@ -54,22 +54,22 @@ STT(Whisper)·임베딩(bge-m3)·LLM(Llama)까지 **오픈소스 전 스택**으
 ## 시스템 구조
 
 ```
-브라우저 (React 19 + Vite, 토스 디자인 언어)
+브라우저 (React 19 + Vite, 국내 핀테크풍 디자인 언어 · Pretendard)
    │  CER·도메인 보정·QA 규칙 스캐너(서버와 공유) · Turnstile 토큰
    ▼
-Cloudflare Pages Functions  /api/cc/{stt, diarize, analyze, qa, search, voc-report, health}
+Cloudflare Pages Functions  /api/cc/{stt, diarize, analyze, analyze-batch, qa, search, assist, voc-report, stats, health}
    ├─ Workers AI  : Whisper ×2 (STT) · bge-m3 (임베딩) · Llama 3.3 70B (LLM 폴백)
    ├─ Claude Opus 5 : tool 강제 호출 → ensureContract 응답 계약 검증
-   └─ D1 : 레이트리밋 버킷 · AI 호출 텔레메트리 (개인정보 미저장)
+   └─ D1 : 레이트리밋 카운터(IP 해시, 날짜별 회전 · 최대 24시간) · AI 호출 텔레메트리 (입력·IP 미저장)
 ```
 
 안전장치: 데모 폴백 / IP·전체·일일 예산 3중 레이트리밋 / Turnstile(무설정 시 fail-open) /
-40초 타임아웃 + 1회 재시도 + 우아한 강등 / 응답 계약 검증 / 토큰·비용 실측 표시 / 텔레메트리.
+Claude 40초 타임아웃 + 1회 재시도 (그 밖의 호출은 단발 타임아웃) + 우아한 강등 / 응답 계약 검증 / 토큰·비용 실측 표시 / 텔레메트리.
 
 ## 데이터 원칙
 
 - 모든 통화·상담사·기업명("한빛텔레콤")은 **가상 창작물** — 실제 통화 데이터·실존 기업 미사용
-- 업로드 음성은 전사 후 즉시 폐기, 개인정보 미수집, 텔레메트리에 입력 내용·IP 미저장
+- 업로드 음성은 전사 후 즉시 폐기 / 텔레메트리에 입력 내용·IP 미저장 / 레이트리밋은 IP 원문 대신 날짜별 회전 해시만 최대 24시간 보관
 - RAG에 붙여넣은 내 문서·VOC 리포트용 집계는 서버에 저장하지 않음
 
 ## 실행법
@@ -78,7 +78,7 @@ Cloudflare Pages Functions  /api/cc/{stt, diarize, analyze, qa, search, voc-repo
 npm install
 npm run dev        # 프론트만 (API는 데모 폴백)
 npm run dev:full   # 빌드 + wrangler pages dev (Functions 포함)
-npm test           # vitest 110개 (QA 점수·커스텀 규칙·CER·도메인 보정·RRF 융합·계약 검증·폴백 사다리·운영 지표)
+npm test           # vitest 164개 (QA 점수·커스텀 규칙·CER·도메인 보정·RRF 융합·계약 검증·폴백 사다리·운영 지표)
 npm run lint       # oxlint
 git push           # Cloudflare Pages Git 연동 자동 빌드·배포 (wrangler.toml 바인딩 자동 적용)
 ```
@@ -88,6 +88,6 @@ Claude Opus 5는 현재 라이브로 가동 중이다 (시크릿 등록 완료).
 ## 문서
 
 - [기획안.md](기획안.md) — 회사·공고 분석 → 기능 매핑 → 기술 선택 이유
-- [개선기획안.md](개선기획안.md) — 이틀간의 배포 후 개선 사이클 30회 기록
+- [개선기획안.md](개선기획안.md) — 이틀간의 배포 후 개선 사이클 38회 기록
 - [docs/기능정리.md](docs/기능정리.md) — 전체 구현 기능 상세 설명
 - [docs/녹음스크립트.md](docs/녹음스크립트.md) — 내 목소리로 STT 시연용 대본 5종
