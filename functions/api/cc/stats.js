@@ -51,7 +51,7 @@ export async function onRequestGet(context) {
   const { env } = context
   if (!env.DB) return json(EMPTY, 200, { cacheControl: NO_STORE })
   try {
-    const [rows, sinceRows] = await readStats(env)
+    const [rows, sinceRows, cumulative] = await readStats(env)
     return json(
       {
         ok: true,
@@ -59,8 +59,10 @@ export async function onRequestGet(context) {
         // rows에서 더한다 — 별도 COUNT(*)를 또 던지면 왕복이 늘고, 두 숫자가 어긋날 수도 있다.
         total: rows.reduce((sum, r) => sum + (Number(r.calls) || 0), 0),
         since: sinceRows[0]?.since ?? null,
-        // 화면이 "누적"이라고 말해도 되는 근거를 응답 자체에 남긴다
-        cumulative: true,
+        // 화면이 "누적"이라고 말해도 되는 근거를 응답 자체에 남긴다.
+        // 예전에는 이 값을 무조건 true로 실었다 — 누적 카운터 표가 없어 레거시 경로로
+        // 내려간 경우에도 "누적"이라고 주장한 셈이다. 아는 것보다 많이 말한 자리였다.
+        cumulative,
         raw_retention_days: RAW_RETENTION_DAYS,
       },
       200,
@@ -79,12 +81,16 @@ export async function onRequestGet(context) {
 // 그럴 바에는 아무것도 보여주지 않는 편이 낫다(About은 ok:false면 블록을 그리지 않는다).
 const MISSING_TABLE_RE = /no such table:?\s*ai_call_totals/i
 
+// 반환: [rows, sinceRows, cumulative] — 세 번째가 "이 숫자가 누적인가"다.
 async function readStats(env) {
   try {
-    return await readPair(env, AGG_SQL, SINCE_SQL)
+    const [rows, sinceRows] = await readPair(env, AGG_SQL, SINCE_SQL)
+    return [rows, sinceRows, true]
   } catch (err) {
     if (!MISSING_TABLE_RE.test(String(err?.message ?? err))) throw err
-    return await readPair(env, LEGACY_AGG_SQL, LEGACY_SINCE_SQL)
+    // 레거시 경로는 남아 있는 원본만 센다 — 접힌 과거가 빠진 수치이므로 누적이 아니다.
+    const [rows, sinceRows] = await readPair(env, LEGACY_AGG_SQL, LEGACY_SINCE_SQL)
+    return [rows, sinceRows, false]
   }
 }
 

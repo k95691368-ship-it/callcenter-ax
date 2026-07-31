@@ -43,6 +43,33 @@ export const GOLDEN_SET = [
   { q: '주식 종목 하나만 알려줘', expected: null, kind: '무관' },
 ]
 
+// 홀드아웃 — 랭커를 만들 때 **보지 않은** 질의로 다시 잰다.
+//
+// 왜 두 벌인가: 위 골든셋은 랭커를 고치면서 계속 돌려본 셋이다. 그렇게 하면 셋에 맞춰
+// 조정하게 되고(의도하지 않아도), 그 점수는 실제 성능보다 낙관적이 된다.
+// 실제로 이 두 셋의 점수는 크게 다르다 — 골든셋 recall@1 0.944 대 홀드아웃 0.571.
+// 두 수치를 함께 두는 이유는, 하나만 보면 시스템이 자기 실력을 실제보다 높게 알기 때문이다.
+// **밖에 내보이는 숫자는 홀드아웃 쪽이어야 한다.**
+export const HOLDOUT_SET = [
+  { q: '와이파이가 자꾸 뚝뚝 끊기는데 점검 좀요', expected: 'faq06', kind: '구어체' },
+  { q: '데이터 많이 쓰는데 더 싼 상품 없나요', expected: 'faq01', kind: '구어체' },
+  { q: '약정 남았는데 중간에 그만두면 얼마 물어야 돼요', expected: 'faq02', kind: '구어체' },
+  { q: '애가 모바일로 아이템 산 거 취소되나요', expected: 'faq05', kind: '구어체' },
+  { q: '일본 여행 다녀왔는데 청구서가 이상해요', expected: 'faq04', kind: '구어체' },
+  { q: '와이프랑 같이 쓰면 싸진다던데', expected: 'faq03', kind: '구어체' },
+  { q: '상담원이 처음에 뭐라고 말해야 하죠', expected: 'faq08', kind: '구어체' },
+  { q: '중도해지 비용 문의', expected: 'faq02', kind: '동의어' },
+  { q: '인터넷 품질 불량 신고', expected: 'faq06', kind: '동의어' },
+  { q: '통신사 명의자 바꾸기', expected: 'faq07', kind: '동의어' },
+  { q: '패밀리 결합 조건', expected: 'faq03', kind: '동의어' },
+  { q: '소액결제 한도 차단 요청', expected: 'faq05', kind: '동의어' },
+  { q: '요금제 하향 변경 시 적용 시점', expected: 'faq01', kind: '문어체' },
+  { q: '로밍 요금 과금 이의 신청', expected: 'faq04', kind: '문어체' },
+  { q: '내일 코스피 오를까요', expected: null, kind: '무관' },
+  { q: '근처 맛집 알려줘', expected: null, kind: '무관' },
+  { q: '아이폰 신제품 출시일', expected: null, kind: '무관' },
+]
+
 // 랭커 하나를 골든셋으로 평가한다.
 // rank: (question, docs) => [{id, score}, ...]
 export function evaluate(rank, { docs = FAQ_DOCS, set = GOLDEN_SET } = {}) {
@@ -115,4 +142,19 @@ export function compareRankers(baseline, candidate, opts = {}) {
 // 현재 운영 랭커의 성적 (화면에 그대로 보여줄 수 있게)
 export function currentScore(opts = {}) {
   return evaluate(bm25Rank, opts)
+}
+
+// 튜닝에 참조한 셋과 참조하지 않은 셋을 나눠 잰다.
+// 둘의 격차(gap)가 곧 "내가 내 실력을 얼마나 과대평가하고 있는가"다.
+export function selfAssessment(rank = bm25Rank, { docs = FAQ_DOCS } = {}) {
+  const tuned = evaluate(rank, { docs, set: GOLDEN_SET })
+  const holdout = evaluate(rank, { docs, set: HOLDOUT_SET })
+  const gap = (k) => Math.round((tuned[k] - holdout[k]) * 1000) / 1000
+  return {
+    tuned,
+    holdout,
+    // 밖에 말할 때 쓰는 수치 — 낙관적인 쪽이 아니라 보지 않은 쪽
+    reportable: { recall1: holdout.recall1, recall3: holdout.recall3, mrr: holdout.mrr },
+    optimismGap: { recall1: gap('recall1'), recall3: gap('recall3'), mrr: gap('mrr') },
+  }
 }
