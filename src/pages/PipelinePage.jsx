@@ -11,6 +11,7 @@ import { buildPipelineReport } from '../lib/pipelineReport.js'
 // base64 변환은 audioChunk의 것을 그대로 쓴다 — 같은 코드가 두 곳에 있으면
 // 한쪽만 고쳐지는 날이 온다.
 import { bufferToB64 } from '../lib/audioChunk.js'
+import { loadPersisted } from '../lib/persist.js'
 
 // 공고의 담당업무 파이프라인(녹취→STT→분석→QA→VOC)을 버튼 하나로 통과시키는 시연.
 // 각 단계는 실제 프로덕션 API를 그대로 호출한다 — 별도의 시연용 가짜 경로가 없다.
@@ -23,6 +24,13 @@ const STEPS = [
   { id: 'qa', title: '⑤ 품질 평가', desc: '규칙 40점 + LLM 60점 Auto QA — ④와 동시 실행' },
   { id: 'voc', title: '⑥ VOC 누적', desc: '대시보드에 분석 결과 합산' },
 ]
+
+// 위험 구간을 색으로 구분한다 (숫자만 있으면 급한 건인지 한눈에 안 보인다)
+function churnTone(score) {
+  if (score >= 70) return 'high'
+  if (score >= 40) return 'mid'
+  return 'low'
+}
 
 export default function PipelinePage() {
   const [stage, setStage] = useState(-1) // -1 대기, 0~5 진행, 6 완료
@@ -40,6 +48,22 @@ export default function PipelinePage() {
   // 6단계 결과 전체를 인수인계 문서 한 장으로 복사한다
   const copyTimerRef = useRef(null)
   useEffect(() => () => clearTimeout(copyTimerRef.current), [])
+
+  // 티켓 초안은 별도로 복사한다 — 담당 부서에 넘길 때 리포트 전체가 필요하지 않다
+  const [ticketCopied, setTicketCopied] = useState(false)
+  const ticketTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(ticketTimerRef.current), [])
+  async function copyTicket() {
+    if (!analysis?.ticket) return
+    try {
+      await navigator.clipboard.writeText(analysis.ticket.text)
+      setTicketCopied(true)
+      clearTimeout(ticketTimerRef.current)
+      ticketTimerRef.current = setTimeout(() => setTicketCopied(false), 1500)
+    } catch {
+      setError('클립보드 복사에 실패했습니다.')
+    }
+  }
   async function copyReport() {
     try {
       await navigator.clipboard.writeText(buildPipelineReport({ stt, lex, dia, analysis, qa, stageErrors }))
@@ -95,9 +119,13 @@ export default function PipelinePage() {
       setStage(2)
       let transcript = corrected.text
       try {
-        const d = await postJson('/api/cc/diarize', { transcript: corrected.text })
+        const base = corrected.text.trim()
+        const d = await postJson('/api/cc/diarize', { transcript: base })
         setDia(d)
-        transcript = d.formatted
+        // 서버는 6000자까지만 처리한다. 잘린 뒷부분을 원문으로 이어 붙이지 않으면
+        // 뒤 단계(분석·QA)가 통화의 앞부분만 보고 판단하게 된다.
+        const tail = d.truncated ? base.slice(d.processed_chars) : ''
+        transcript = tail ? `${d.formatted}\n${tail}` : d.formatted
       } catch (err) {
         setStageErrors((e) => ({ ...e, dia: err.message }))
       }
@@ -105,9 +133,19 @@ export default function PipelinePage() {
       // ④⑤ 분석과 QA는 같은 전사를 읽으므로 동시에 실행한다 — 대기시간 단축.
       // 한쪽이 실패해도 다른 쪽 결과는 살린다.
       setStage(3)
+      // QA에는 /qa 화면에 저장해 둔 커스텀 체크리스트를 함께 보낸다. 보내지 않으면
+      // 같은 통화가 화면에 따라 다른 점수를 받아, 어느 쪽이 맞는지 알 수 없게 된다.
+      // 키·형태는 QaPage의 저장 방식과 같아야 한다 ('cc-qa-custom', keywords는 쉼표 문자열).
+      const customMentions = (loadPersisted('cc-qa-custom', []) || [])
+        .filter((m) => m?.label?.trim() && m?.keywords?.trim())
+        .map((m) => ({
+          label: m.label,
+          keywords: m.keywords.split(',').map((k) => k.trim()).filter(Boolean),
+        }))
+      const qaBody = customMentions.length ? { transcript, custom_mentions: customMentions } : { transcript }
       const [aRes, qRes] = await Promise.allSettled([
         postJson('/api/cc/analyze', { transcript }),
-        postJson('/api/cc/qa', { transcript }),
+        postJson('/api/cc/qa', qaBody),
       ])
       if (aRes.status === 'fulfilled') setAnalysis(aRes.value)
       else setStageErrors((e) => ({ ...e, analyze: aRes.reason?.message || '분석 실패' }))
@@ -122,6 +160,8 @@ export default function PipelinePage() {
           category: aRes.value.category,
           sentiment: aRes.value.sentiment,
           escalate: aRes.value.escalate,
+          churn: aRes.value.churn,
+          route: aRes.value.ticket?.route,
         })
       } else {
         setStageErrors((e) => ({ ...e, voc: '분석이 실패해 이번 통화는 누적하지 않았습니다.' }))
@@ -254,6 +294,89 @@ export default function PipelinePage() {
                     <li key={idx}>{line}</li>
                   ))}
                 </ul>
+
+                {/* 이탈 위험 — 규칙 신호로 계산되므로 AI 키가 없어도 실제 값이 나온다.
+                    점수만 보여주면 믿을 근거가 없으므로 신호와 인용 발화를 함께 노출한다. */}
+                {analysis.churn && Number.isFinite(analysis.churn.score) && (
+                  <div className="churn-box">
+                    <div className="churn-head">
+                      <span className={`churn-level churn-${churnTone(analysis.churn.score)}`}>
+                        이탈 위험 {analysis.churn.score}점 · {analysis.churn.level}
+                      </span>
+                      <span className="usage-note">
+                        {analysis.churn.action}
+                        {analysis.churn.estimated
+                          ? ' · 규칙 기반 실측'
+                          : analysis.churn.adjusted
+                            ? ' · 규칙 신호로 보정됨'
+                            : ''}
+                      </span>
+                    </div>
+                    {analysis.churn.signals?.length > 0 && (
+                      <ul className="plain-list churn-signals">
+                        {analysis.churn.signals.map((sig) => (
+                          <li key={sig.id}>
+                            <strong>{sig.label}</strong>
+                            {sig.evidence && <span className="churn-quote"> "{sig.evidence}"</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {analysis.churn.retentionSignals?.length > 0 && (
+                      <p className="result-empty-sub">
+                        완화 신호: {analysis.churn.retentionSignals.map((s) => s.label).join(', ')}
+                      </p>
+                    )}
+                    {analysis.churn.speakerLabeled === false && (
+                      <p className="result-empty-sub">
+                        화자 라벨이 없어 전사 전체를 훑었습니다 — 상담사 발화가 신호로 잡혔을 수 있습니다.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* 대화 지표 — 화자 라벨이 있을 때만 계산된다(없으면 표시하지 않는다) */}
+                {analysis.metrics && (
+                  <div className="metrics-box">
+                    <div className="stat-row">
+                      <div className="stat-tile">
+                        <span className="stat-label">발화 비율 (상담사/고객)</span>
+                        <span className="stat-value">
+                          {analysis.metrics.agentCharRatio}% / {analysis.metrics.customerCharRatio}%
+                        </span>
+                      </div>
+                      <div className="stat-tile">
+                        <span className="stat-label">대화 턴</span>
+                        <span className="stat-value">{analysis.metrics.turns}회</span>
+                      </div>
+                      <div className="stat-tile">
+                        <span className="stat-label">확인 질문 / 공감</span>
+                        <span className="stat-value">
+                          {analysis.metrics.questionTurns} / {analysis.metrics.empathyTurns}턴
+                        </span>
+                      </div>
+                    </div>
+                    {(analysis.metrics_diagnosis || []).map((d) => (
+                      <p key={d.id} className={`metric-diag metric-${d.level}`}>
+                        <strong>{d.label}</strong> — {d.detail}
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+                {/* 티켓 초안 — 분석에서 끝내지 않고 "다음 사람이 쓸 문서"까지 만든다 */}
+                {analysis.ticket && (
+                  <details className="custom-docs ticket-draft">
+                    <summary>
+                      🎫 에스컬레이션 티켓 초안 — {analysis.ticket.route.priority}{' '}
+                      {analysis.ticket.route.team} ({analysis.ticket.route.sla})
+                    </summary>
+                    <pre className="ticket-text">{analysis.ticket.text}</pre>
+                    <button type="button" className="btn-ghost" onClick={copyTicket}>
+                      {ticketCopied ? '✓ 티켓 초안 복사됨' : '티켓 초안 복사'}
+                    </button>
+                  </details>
+                )}
               </div>
             )}
 

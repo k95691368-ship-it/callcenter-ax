@@ -3,9 +3,15 @@ import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
+import CharCount from '../components/CharCount.jsx'
+import { VerifyBadge } from '../components/VerifyBadge.jsx'
+import { revealElement } from '../components/motion.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { MAX_RULE_SCORE, MAX_CUSTOM_MENTIONS } from '../lib/qaRules.js'
 import { usePersistentState } from '../lib/persist.js'
+
+// 서버가 조용히 잘라내는 상한 (functions/api/cc/qa.js의 MAX_CHARS)
+const MAX_TRANSCRIPT_CHARS = 8000
 
 const EMPTY_CUSTOM = Array.from({ length: MAX_CUSTOM_MENTIONS }, () => ({ label: '', keywords: '' }))
 
@@ -60,6 +66,9 @@ export default function QaPage() {
   }, [])
 
   const [copied, setCopied] = useState(false)
+  // 복사 실패를 좌측 폼의 setError로 보내면 화면 반대편에 떠서 버튼을 누른 사람이
+  // 알아채지 못한다. 버튼 옆에 붙는 별도 상태로 분리한다.
+  const [copyError, setCopyError] = useState('')
   const copyTimerRef = useRef(null)
   useEffect(() => () => clearTimeout(copyTimerRef.current), [])
   // 콜센터별 커스텀 체크리스트 — 라벨 + 키워드(쉼표 구분)를 서버 규칙 스캔에 합류시킨다.
@@ -89,10 +98,11 @@ export default function QaPage() {
     try {
       await navigator.clipboard.writeText(lines.join('\n'))
       setCopied(true)
+      setCopyError('')
       clearTimeout(copyTimerRef.current)
       copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
     } catch {
-      setError('클립보드 복사에 실패했습니다.')
+      setCopyError('복사 실패 — 점수표를 직접 선택해 복사해주세요.')
     }
   }
 
@@ -111,7 +121,7 @@ export default function QaPage() {
         ...(custom.length ? { custom_mentions: custom } : {}),
       })
       setResult(data)
-      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+      requestAnimationFrame(() => revealElement(resultRef.current))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -139,6 +149,7 @@ export default function QaPage() {
             통화 전사 텍스트 — 상담사:/고객: 형식이면 상담사 발화만 평가
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={13} />
           </label>
+          <CharCount value={text} max={MAX_TRANSCRIPT_CHARS} />
           <div className="batch-meta">
             <button type="button" className="preset-chip" onClick={() => setText(SAMPLE_CALLS[9].transcript)}>
               샘플: 응대 미흡 사례
@@ -171,7 +182,7 @@ export default function QaPage() {
               </div>
             ))}
           </details>
-          <button type="submit" className="btn-primary" disabled={loading}>
+          <button type="submit" className="btn-primary" disabled={loading} aria-busy={loading}>
             {loading ? '평가 중... (10~30초)' : '품질 평가하기'}
           </button>
           {error && <p className="form-error" role="alert">{error}</p>}
@@ -192,6 +203,13 @@ export default function QaPage() {
                 {result.demo && <DemoBadge />}
                 <UsageNote usage={result.usage} />
                 <OssLlmNote model={result.llm_model} />
+                {/* 라벨이 없을 때만 경고를 띄우면, 라벨이 있어 상담사 발화만 채점된
+                    정상 경로에서는 그 사실이 화면에 남지 않는다 — 통과도 표시한다. */}
+                {result.speaker_labeled === true && (
+                  <VerifyBadge title="전사에서 상담사:/고객: 화자 라벨을 확인했습니다. 규칙 스캔과 감점은 상담사 발화에만 적용됩니다.">
+                    화자 라벨 확인 · 상담사 발화만 채점
+                  </VerifyBadge>
+                )}
               </div>
 
               {result.speaker_labeled === false && (
@@ -219,9 +237,16 @@ export default function QaPage() {
                 </div>
               </div>
 
-              <button type="button" className="btn-ghost qa-copy" onClick={copyResult}>
-                {copied ? '✓ 복사됨' : '점수표 복사 (코칭 공유용)'}
-              </button>
+              <div className="copy-row">
+                <button type="button" className="btn-ghost qa-copy" onClick={copyResult}>
+                  {copied ? '✓ 복사됨' : '점수표 복사 (코칭 공유용)'}
+                </button>
+                {copyError && (
+                  <span className="copy-error" role="alert">
+                    {copyError}
+                  </span>
+                )}
+              </div>
 
               <section className="analysis-block">
                 <h2>필수 안내 멘트 체크리스트 (규칙 기반)</h2>

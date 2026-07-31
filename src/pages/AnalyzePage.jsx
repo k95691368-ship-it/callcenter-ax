@@ -4,9 +4,14 @@ import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
+import CharCount, { LimitNote } from '../components/CharCount.jsx'
+import { revealElement } from '../components/motion.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { saveMyCall } from '../lib/myCalls.js'
-import { splitCalls, MAX_BATCH_CALLS } from '../lib/batchSplit.js'
+import { splitCalls, MAX_BATCH_CALLS, MAX_CALL_CHARS } from '../lib/batchSplit.js'
+
+// 서버가 조용히 잘라내는 상한 (functions/api/cc/analyze.js의 MAX_CHARS)
+const MAX_TRANSCRIPT_CHARS = 8000
 
 const BATCH_SAMPLE = [SAMPLE_CALLS[0], SAMPLE_CALLS[2], SAMPLE_CALLS[7]]
   .map((c) => c.transcript)
@@ -58,6 +63,9 @@ export default function AnalyzePage() {
   }, [])
 
   const [copied, setCopied] = useState(false)
+  // 복사 실패를 좌측 폼의 setError로 보내면 화면 반대편에 떠서 버튼을 누른 사람이
+  // 알아채지 못한다. 버튼 옆에 붙는 별도 상태로 분리한다.
+  const [copyError, setCopyError] = useState('')
   const copyTimerRef = useRef(null)
   useEffect(() => () => clearTimeout(copyTimerRef.current), [])
 
@@ -73,10 +81,11 @@ export default function AnalyzePage() {
     try {
       await navigator.clipboard.writeText(lines.join('\n'))
       setCopied(true)
+      setCopyError('')
       clearTimeout(copyTimerRef.current)
       copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
     } catch {
-      setError('클립보드 복사에 실패했습니다.')
+      setCopyError('복사 실패 — 결과를 직접 선택해 복사해주세요.')
     }
   }
 
@@ -86,6 +95,9 @@ export default function AnalyzePage() {
       setError('통화 전사 텍스트를 입력해주세요.')
       return
     }
+    // 단건과 일괄이 동시에 나가면 유료 LLM 호출 두 건이 병렬로 떠나고, 어느 쪽이
+    // 실패했는지 알 수 없는 상태가 된다. 한 번에 하나만 진행시킨다.
+    if (loading || batchLoading) return
     setLoading(true)
     setError('')
     try {
@@ -98,7 +110,7 @@ export default function AnalyzePage() {
         sentiment: data.sentiment,
         escalate: data.escalate,
       })
-      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+      requestAnimationFrame(() => revealElement(resultRef.current))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -116,24 +128,48 @@ export default function AnalyzePage() {
   const [batchLoading, setBatchLoading] = useState(false)
   const [batchResult, setBatchResult] = useState(null)
   const [batchSaved, setBatchSaved] = useState(false)
+  // 일괄 분석 에러를 단건과 같은 error 상태에 담으면 서로를 덮어써, 좌측 폼에 뜬 메시지가
+  // 어느 요청의 것인지 알 수 없었다. 섹션별로 분리해 각자 옆에 표시한다.
+  const [batchError, setBatchError] = useState('')
 
   // 버튼 라벨에서 매 렌더 호출하면 무관한 리렌더에도 정규식 분할이 반복 실행된다.
   const batchParts = useMemo(() => splitCalls(batchText), [batchText])
+  // splitCalls는 이미 5건·2000자로 잘라낸 결과다. 무엇이 잘려 나갔는지 알리려면
+  // 자르기 전의 원본 분할이 필요하다.
+  const batchRaw = useMemo(
+    () =>
+      batchText
+        .split(/\n\s*\n/)
+        .map((t) => t.trim())
+        .filter(Boolean),
+    [batchText]
+  )
+  const droppedCalls = Math.max(0, batchRaw.length - MAX_BATCH_CALLS)
+  const longCalls = batchRaw.slice(0, MAX_BATCH_CALLS).filter((t) => t.length > MAX_CALL_CHARS).length
+  const batchWarning = [
+    droppedCalls > 0 ? `상한 초과 — 앞 ${MAX_BATCH_CALLS}건만 전송되고 나머지는 제외됩니다.` : '',
+    longCalls > 0
+      ? `상한을 넘는 통화가 있어 각 통화의 앞 ${MAX_CALL_CHARS.toLocaleString('ko-KR')}자만 분석됩니다.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   async function analyzeBatch() {
     const parts = batchParts
     if (parts.length < 2) {
-      setError('일괄 분석은 통화 2건 이상부터 가능합니다. 통화 사이를 빈 줄로 구분해주세요.')
+      setBatchError('일괄 분석은 통화 2건 이상부터 가능합니다. 통화 사이를 빈 줄로 구분해주세요.')
       return
     }
+    if (loading || batchLoading) return
     setBatchLoading(true)
-    setError('')
+    setBatchError('')
     setBatchSaved(false)
     try {
       const data = await postJson('/api/cc/analyze-batch', { transcripts: parts })
       setBatchResult({ ...data, inputs: parts })
     } catch (err) {
-      setError(err.message)
+      setBatchError(err.message)
     } finally {
       setBatchLoading(false)
     }
@@ -171,6 +207,7 @@ export default function AnalyzePage() {
             통화 전사 텍스트 — 상담사:/고객: 형식 권장
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={13} />
           </label>
+          <CharCount value={text} max={MAX_TRANSCRIPT_CHARS} />
           <div className="batch-meta">
             {PRESETS.map((p) => (
               <button key={p.label} type="button" className="preset-chip" onClick={() => setText(p.call.transcript)}>
@@ -178,8 +215,13 @@ export default function AnalyzePage() {
               </button>
             ))}
           </div>
-          <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? '분석 중... (10~30초)' : '통화 분석하기'}
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={loading || batchLoading}
+            aria-busy={loading}
+          >
+            {loading ? '분석 중... (10~30초)' : batchLoading ? '일괄 분석이 끝나면 가능합니다' : '통화 분석하기'}
           </button>
           {error && <p className="form-error" role="alert">{error}</p>}
         </form>
@@ -272,6 +314,11 @@ export default function AnalyzePage() {
                 <button type="button" className="btn-ghost" onClick={sendToQa}>
                   이 통화를 Auto QA로 평가하기 →
                 </button>
+                {copyError && (
+                  <span className="copy-error" role="alert">
+                    {copyError}
+                  </span>
+                )}
               </div>
             </>
           )}
@@ -283,7 +330,7 @@ export default function AnalyzePage() {
         <p className="about-note">
           상담 후처리는 건별이 아니라 묶음으로 흐릅니다. 통화 사이를 빈 줄로 구분해 최대{' '}
           {MAX_BATCH_CALLS}건까지 붙여넣으면 <strong>한 번의 호출</strong>로 전부 분류·요약됩니다
-          (샘플 3건이 채워져 있어요).
+          (통화당 {MAX_CALL_CHARS.toLocaleString('ko-KR')}자까지 · 샘플 3건이 채워져 있어요).
         </p>
         <textarea
           className="batch-textarea"
@@ -292,9 +339,24 @@ export default function AnalyzePage() {
           rows={8}
           aria-label="일괄 분석할 통화들"
         />
+        {/* 서버는 5건·통화당 2000자를 넘는 입력을 조용히 버린다 — 보내기 전에 알린다 */}
+        <LimitNote warning={batchWarning}>
+          빈 줄로 구분된 통화 {batchRaw.length}건 인식 · 최대 {MAX_BATCH_CALLS}건, 통화당{' '}
+          {MAX_CALL_CHARS.toLocaleString('ko-KR')}자
+        </LimitNote>
         <div className="hub-cta result-actions">
-          <button type="button" className="btn-primary" onClick={analyzeBatch} disabled={batchLoading}>
-            {batchLoading ? '일괄 분석 중... (10~30초)' : `일괄 분석하기 (${batchParts.length}건)`}
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={analyzeBatch}
+            disabled={loading || batchLoading}
+            aria-busy={batchLoading}
+          >
+            {batchLoading
+              ? '일괄 분석 중... (10~30초)'
+              : loading
+                ? '단건 분석이 끝나면 가능합니다'
+                : `일괄 분석하기 (${batchParts.length}건)`}
           </button>
           {batchResult && (
             <button type="button" className="btn-ghost" onClick={saveBatchToVoc} disabled={batchSaved}>
@@ -302,6 +364,11 @@ export default function AnalyzePage() {
             </button>
           )}
         </div>
+        {batchError && (
+          <p className="form-error" role="alert">
+            {batchError}
+          </p>
+        )}
         {batchResult && (
           <>
             <ResultNotice text={batchResult.notice} />

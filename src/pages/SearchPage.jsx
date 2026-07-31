@@ -1,8 +1,16 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
+import CharCount, { LimitNote } from '../components/CharCount.jsx'
+import { revealElement } from '../components/motion.js'
+
+// 서버가 조용히 잘라내는 상한 (functions/api/cc/search.js) — 질문 300자,
+// 내 문서는 최대 5건이며 문서당 앞 800자만 코퍼스에 들어간다
+const MAX_QUESTION_CHARS = 300
+const MAX_CUSTOM_DOCS = 5
+const MAX_CUSTOM_DOC_CHARS = 800
 
 const GEN_STEPS = [
   '질문과 지식 문서를 임베딩 벡터로 변환하고 있어요',
@@ -45,11 +53,26 @@ export default function SearchPage() {
   const resultRef = useRef(null)
 
   // 빈 줄로 구분해 문서 여러 건을 붙여넣을 수 있다 (최대 5건)
-  const customDocs = customText
-    .split(/\n\s*\n/)
-    .map((d) => d.trim())
+  const customRaw = useMemo(
+    () =>
+      customText
+        .split(/\n\s*\n/)
+        .map((d) => d.trim())
+        .filter(Boolean),
+    [customText]
+  )
+  const customDocs = useMemo(() => customRaw.slice(0, MAX_CUSTOM_DOCS), [customRaw])
+  // 서버는 5건을 넘는 문서와 문서당 800자 뒤쪽을 조용히 버린다 — 보내기 전에 알린다
+  const droppedDocs = Math.max(0, customRaw.length - MAX_CUSTOM_DOCS)
+  const longDocs = customDocs.filter((d) => d.length > MAX_CUSTOM_DOC_CHARS).length
+  const docsWarning = [
+    droppedDocs > 0 ? `상한 초과 — 앞 ${MAX_CUSTOM_DOCS}건만 검색에 포함됩니다.` : '',
+    longDocs > 0
+      ? `상한을 넘는 문서가 있어 각 문서의 앞 ${MAX_CUSTOM_DOC_CHARS.toLocaleString('ko-KR')}자만 색인됩니다.`
+      : '',
+  ]
     .filter(Boolean)
-    .slice(0, 5)
+    .join(' ')
 
   async function search(e) {
     e.preventDefault()
@@ -65,7 +88,7 @@ export default function SearchPage() {
         ...(customDocs.length ? { custom_docs: customDocs } : {}),
       })
       setResult(data)
-      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+      requestAnimationFrame(() => revealElement(resultRef.current))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -97,6 +120,7 @@ export default function SearchPage() {
             상담사 질문
             <textarea value={question} onChange={(e) => setQuestion(e.target.value)} rows={3} />
           </label>
+          <CharCount value={question} max={MAX_QUESTION_CHARS} />
           <div className="batch-meta search-samples">
             {SAMPLE_QUESTIONS.map((q) => (
               <button key={q} type="button" className="preset-chip" onClick={() => setQuestion(q)}>
@@ -112,9 +136,13 @@ export default function SearchPage() {
               value={customText}
               onChange={(e) => setCustomText(e.target.value)}
               rows={6}
-              placeholder={'회사 규정·FAQ를 붙여넣으세요. 빈 줄로 문서를 구분합니다 (최대 5건).\n\n예) 프리미엄 요금제는 가입 후 14일 이내 무료 해지가 가능하다. 이후에는...'}
+              placeholder={`회사 규정·FAQ를 붙여넣으세요. 빈 줄로 문서를 구분합니다 (최대 ${MAX_CUSTOM_DOCS}건).\n\n예) 프리미엄 요금제는 가입 후 14일 이내 무료 해지가 가능하다. 이후에는...`}
               aria-label="내 문서"
             />
+            <LimitNote warning={docsWarning}>
+              문서 {customRaw.length}건 인식 · 최대 {MAX_CUSTOM_DOCS}건, 문서당{' '}
+              {MAX_CUSTOM_DOC_CHARS.toLocaleString('ko-KR')}자
+            </LimitNote>
             <p className="result-empty-sub">
               붙여넣은 문서는 질문과 함께 실시간 임베딩되어 내장 규정 8건과 같은 코퍼스에서
               검색됩니다 — 서버에 저장되지 않고, 이 브라우저에만 보관되어 다음 방문에도
@@ -129,7 +157,7 @@ export default function SearchPage() {
               )}
             </p>
           </details>
-          <button type="submit" className="btn-primary" disabled={loading}>
+          <button type="submit" className="btn-primary" disabled={loading} aria-busy={loading}>
             {loading ? '검색 중... (5~20초)' : '지식 검색하기'}
           </button>
           {error && <p className="form-error" role="alert">{error}</p>}

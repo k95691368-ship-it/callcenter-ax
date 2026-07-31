@@ -6,8 +6,45 @@ import { runLlmLadder } from '../../_lib/ladder.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { groundedness } from '../../../src/lib/grounding.js'
+import { estimateChurn, applyChurnBand } from '../../../src/lib/churnRisk.js'
+import { computeCallMetrics, diagnoseCallMetrics } from '../../../src/lib/callMetrics.js'
+import { buildTicketDraft } from '../../../src/lib/ticketDraft.js'
 
 const MAX_CHARS = 8000
+
+// 이탈 위험이 이 점수를 넘으면 에스컬레이션이 아니어도 티켓 초안을 만든다.
+// 해지로 가는 통화는 "분쟁"이 아니어서 escalate가 false로 남기 쉬운데,
+// 운영 관점에서는 그쪽이 더 급하다.
+const TICKET_CHURN_THRESHOLD = 40
+
+// 결정적 층 — LLM이 없어도(=API 키가 없어도) 항상 실제로 계산되는 값들.
+// 분류·요약은 LLM 없이는 추정이지만, 아래 세 가지는 전사 텍스트만으로 계산되는 실측값이다.
+//   · 이탈 위험 지수: 규칙 신호(해지 의사·타사 비교·위약금 확인 등) + 근거 발화
+//   · 대화 지표: 발화 비율·연속 발화·확인 질문·공감 표현 (화자 라벨이 있을 때)
+//   · 티켓 초안: 부서 라우팅·우선순위·SLA를 규칙으로 배정해 인수인계 문서로 조립
+function withDeterministicLayers(base, transcript, churn) {
+  const metrics = computeCallMetrics(transcript)
+  const needsTicket = Boolean(base.escalate) || (churn?.score ?? 0) >= TICKET_CHURN_THRESHOLD
+  const ticket = needsTicket
+    ? buildTicketDraft({
+        transcript,
+        category: base.category,
+        sentiment: base.sentiment,
+        summary: base.summary,
+        intentKeywords: base.intent_keywords,
+        actions: base.actions,
+        escalateReason: base.escalate_reason,
+        churn,
+      })
+    : null
+  return {
+    ...base,
+    churn,
+    metrics,
+    metrics_diagnosis: diagnoseCallMetrics(metrics),
+    ticket,
+  }
+}
 
 const TOOL = {
   name: 'record_call_analysis',
@@ -47,6 +84,12 @@ const TOOL = {
         description: '사람 담당자의 판단이 필요한 건이면 true (법적 클레임, 강성 민원, 보상·감면 요구, 분쟁 소지)',
       },
       escalate_reason: { type: ['string', 'null'], description: 'escalate가 true인 이유 한 줄' },
+      churn_risk: {
+        type: 'integer',
+        description:
+          '이탈(해지) 위험 0~100. 해지 의사 표현·타사 비교·위약금 확인·반복 장애·신뢰 상실이 있으면 높게, 해결 확인·유지 의사가 있으면 낮게. 통화에 실제로 나온 근거만으로 판단',
+      },
+      churn_reason: { type: 'string', description: '이탈 위험 판정의 근거 한 줄 (실제 발화 인용)' },
     },
   },
 }
@@ -110,7 +153,7 @@ export async function onRequestPost(context) {
 
   if (!canClaude && !canWorkers) {
     logCall(context, { endpoint: 'analyze', mode: 'demo', startedAt })
-    return json(demoAnalyze(transcript))
+    return json(withDeterministicLayers(demoAnalyze(transcript), transcript, estimateChurn(transcript)))
   }
 
   // 검사 순서가 중요하다: 거부될 요청이 공유 예산을 먼저 태우면 한 IP가 전체 서비스의
@@ -122,7 +165,10 @@ export async function onRequestPost(context) {
     return errorJson('사용량이 많아 잠시 후 다시 시도해주세요.', 429)
   if (!(await checkRateLimit(env, 'cc:daily:all', 300, 86400))) {
     logCall(context, { endpoint: 'analyze', mode: 'budget', startedAt })
-    return json({ ...demoAnalyze(transcript), notice: '오늘의 라이브 분석 예산이 소진되어 예시 결과를 표시합니다.' })
+    return json({
+      ...withDeterministicLayers(demoAnalyze(transcript), transcript, estimateChurn(transcript)),
+      notice: '오늘의 라이브 분석 예산이 소진되어 예시 결과를 표시합니다.',
+    })
   }
 
   try {
@@ -133,7 +179,7 @@ export async function onRequestPost(context) {
       tool: TOOL,
       maxTokens: 6144,
       workersSchema:
-        '{"category":"가입|해지|요금|불만|기타","summary":["3줄"],"sentiment":"긍정|중립|부정|강성","sentiment_reason":"...","intent_keywords":["..."],"actions":["..."],"escalate":true|false,"escalate_reason":"...또는 null"}',
+        '{"category":"가입|해지|요금|불만|기타","summary":["3줄"],"sentiment":"긍정|중립|부정|강성","sentiment_reason":"...","intent_keywords":["..."],"actions":["..."],"escalate":true|false,"escalate_reason":"...또는 null","churn_risk":0~100 정수,"churn_reason":"..."}',
       workersMaxTokens: 1024,
     })
     const result = r.input
@@ -145,10 +191,22 @@ export async function onRequestPost(context) {
     result.escalate = Boolean(result.escalate)
     // 요약 근거율 — 3줄 요약의 표현이 통화 원문과 실제로 겹치는 비율 (투명 표시)
     const grounding = groundedness(result.summary.join(' '), transcript)
+    // 이탈 위험은 LLM 점수를 규칙 신호가 만든 구간으로 보정한다. LLM은 맥락을 읽지만
+    // 점수 스케일이 흔들리고, 규칙은 맥락을 못 읽지만 흔들리지 않는다 — 겹쳐 쓴다.
+    const churn = { ...applyChurnBand(result.churn_risk, transcript), reason: result.churn_reason || null }
     logCall(context, { endpoint: 'analyze', mode: r.engine === 'claude' ? 'live' : 'live-oss', startedAt, usage: r.usage })
-    return json({ demo: false, usage: r.usage, llm_model: r.model, grounding, ...result })
+    return json({
+      demo: false,
+      usage: r.usage,
+      llm_model: r.model,
+      grounding,
+      ...withDeterministicLayers(result, transcript, churn),
+    })
   } catch (err) {
     logCall(context, { endpoint: 'analyze', mode: 'fallback', startedAt })
-    return json({ ...demoAnalyze(transcript), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
+    return json({
+      ...withDeterministicLayers(demoAnalyze(transcript), transcript, estimateChurn(transcript)),
+      notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})`,
+    })
   }
 }

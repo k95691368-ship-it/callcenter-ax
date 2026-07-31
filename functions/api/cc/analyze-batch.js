@@ -7,10 +7,16 @@ import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { demoAnalyze } from './analyze.js'
 import { MAX_BATCH_CALLS, MAX_CALL_CHARS } from '../../../src/lib/batchSplit.js'
+import { estimateChurn } from '../../../src/lib/churnRisk.js'
+import { routeTicket } from '../../../src/lib/ticketDraft.js'
 
 // 일괄 분석 — 분석 코어의 "단건 처리" 한계 돌파.
 // 여러 통화를 LLM 호출 "1회"로 함께 구조화한다 (레이트리밋 1회 소비로 최대 5건).
 // 상담 후처리(after-call work)가 건별이 아니라 묶음으로 흐르는 실무 동선에 대응.
+//
+// 묶음 처리의 목적은 분류표를 얻는 게 아니라 **처리 순서를 정하는 것**이다. 그래서
+// 건별로 이탈 위험(규칙 기반)과 담당 부서를 함께 계산해 붙인다. 이 두 값은 LLM 없이도
+// 나오므로 예산이 소진되거나 키가 없는 상태에서도 우선순위 판단은 그대로 동작한다.
 
 const TOOL = {
   name: 'record_batch_analysis',
@@ -46,6 +52,28 @@ const SYSTEM = `당신은 콜센터 통화 일괄 분석가입니다. 여러 통
 3. 법적 클레임·언론 제보·강성 민원·보상 요구는 escalate=true로 올리세요.
 ${CALL_SAFETY_RULES}`
 
+
+// 이 점수 아래이고 에스컬레이션도 아니면 1선 종결 건으로 본다.
+// 모든 통화에 담당 부서를 붙이면 "요금제 종류 문의"에도 P2가 생겨 정작 급한 건이 묻힌다.
+const HANDOFF_CHURN_THRESHOLD = 40
+
+// 건별 우선순위 층 — 이탈 위험 + 담당 부서 배정 (전사 텍스트만으로 계산)
+function withTriage(calls, transcripts) {
+  return calls.map((c, i) => {
+    const transcript = transcripts[i] || ''
+    const churn = estimateChurn(transcript)
+    const needsHandoff = Boolean(c.escalate) || churn.score >= HANDOFF_CHURN_THRESHOLD
+    return {
+      ...c,
+      churn,
+      needs_handoff: needsHandoff,
+      route: needsHandoff
+        ? routeTicket({ text: transcript, category: c.category, churnScore: churn.score })
+        : null,
+    }
+  })
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context
   const body = await readJsonBody(request)
@@ -61,7 +89,7 @@ export async function onRequestPost(context) {
   const startedAt = Date.now()
   const demoAll = () => ({
     demo: true,
-    calls: transcripts.map((t) => {
+    calls: withTriage(transcripts.map((t) => {
       const d = demoAnalyze(t)
       return {
         category: d.category,
@@ -70,7 +98,7 @@ export async function onRequestPost(context) {
         escalate: Boolean(d.escalate),
         escalate_reason: d.escalate_reason || '',
       }
-    }),
+    }), transcripts),
   })
 
   const canClaude = hasApiKey(env)
@@ -123,7 +151,7 @@ export async function onRequestPost(context) {
       usage: r.usage,
       findingsCount: calls.length,
     })
-    return json({ demo: false, usage: r.usage, llm_model: r.model, calls })
+    return json({ demo: false, usage: r.usage, llm_model: r.model, calls: withTriage(calls, transcripts) })
   } catch (err) {
     logCall(context, { endpoint: 'analyze-batch', mode: 'fallback', startedAt })
     return json({ ...demoAll(), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })

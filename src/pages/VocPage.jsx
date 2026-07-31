@@ -5,7 +5,10 @@ import { loadMyCalls, clearMyCalls } from '../lib/myCalls.js'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
+import { NumbersVerifiedBadge } from '../components/VerifyBadge.jsx'
 import { buildVocCsv } from '../lib/vocCsv.js'
+import { detectVocAnomalies } from '../lib/vocAnomaly.js'
+import { aggregateThemes } from '../lib/vocThemes.js'
 
 // 감정 축은 순서형(긍정→강성)이므로 단일 색조의 순차 램프로 칠한다 (무지개 금지)
 const SENTIMENT_RAMP = { 긍정: '#cfe1fc', 중립: '#8fbafa', 부정: '#4593fc', 강성: '#1b64da' }
@@ -67,27 +70,49 @@ export default function VocPage() {
   const [myCalls, setMyCalls] = useState(loadMyCalls)
   const calls = useMemo(() => [...SAMPLE_CALLS, ...myCalls], [myCalls])
 
+  // 축마다 filter를 걸면 카테고리 5회 + 감정 4회 + 날짜 D회로 같은 배열을 12번 넘게
+  // 다시 훑는다(축이나 날짜가 늘 때마다 순회도 함께 늘어난다). 한 번의 루프에서 Map에
+  // 누적해 순회 횟수를 입력 크기와 무관하게 고정한다. 출력 구조는 그대로 — 차트와 표가
+  // byCategory/bySentiment/byDate/escalated/hot/avgMin의 형태에 그대로 의존한다.
   const agg = useMemo(() => {
-    const byCategory = CATEGORIES.map((c) => ({
-      name: c,
-      count: calls.filter((k) => k.analysis.category === c).length,
-    }))
-    const bySentiment = SENTIMENTS.map((s) => ({
-      name: s,
-      count: calls.filter((k) => k.analysis.sentiment === s).length,
-    }))
-    const dates = [...new Set(calls.map((c) => c.date))].sort()
-    const byDate = dates.map((d) => ({ date: d, count: calls.filter((c) => c.date === d).length }))
-    const escalated = calls.filter((c) => c.analysis.escalate)
-    const hot = calls.filter((c) => c.analysis.sentiment === '강성' || c.analysis.sentiment === '부정')
-    // 직접 분석한 통화에는 통화 시간이 없으므로 내장 샘플 기준으로만 평균을 낸다
-    const timed = calls.filter((c) => typeof c.minutes === 'number')
-    const avgMin = timed.reduce((s, c) => s + c.minutes, 0) / Math.max(timed.length, 1)
+    const catCount = new Map(CATEGORIES.map((c) => [c, 0]))
+    const sentCount = new Map(SENTIMENTS.map((s) => [s, 0]))
+    const dateCount = new Map()
+    const escalated = []
+    const hot = []
+    let timedCount = 0
+    let timedSum = 0
+    for (const call of calls) {
+      const { category, sentiment, escalate } = call.analysis
+      // 알려진 축에 없는 값은 세지 않는다 — 이전 filter 방식과 같은 결과를 유지한다
+      if (catCount.has(category)) catCount.set(category, catCount.get(category) + 1)
+      if (sentCount.has(sentiment)) sentCount.set(sentiment, sentCount.get(sentiment) + 1)
+      dateCount.set(call.date, (dateCount.get(call.date) || 0) + 1)
+      if (escalate) escalated.push(call)
+      if (sentiment === '강성' || sentiment === '부정') hot.push(call)
+      // 직접 분석한 통화에는 통화 시간이 없으므로 내장 샘플 기준으로만 평균을 낸다
+      if (typeof call.minutes === 'number') {
+        timedCount += 1
+        timedSum += call.minutes
+      }
+    }
+    const byCategory = CATEGORIES.map((c) => ({ name: c, count: catCount.get(c) }))
+    const bySentiment = SENTIMENTS.map((s) => ({ name: s, count: sentCount.get(s) }))
+    const byDate = [...dateCount.keys()].sort().map((d) => ({ date: d, count: dateCount.get(d) }))
+    const avgMin = timedSum / Math.max(timedCount, 1)
     return { byCategory, bySentiment, byDate, escalated, hot, avgMin }
   }, [calls])
 
   const maxCat = Math.max(...agg.byCategory.map((c) => c.count), 1)
   const maxSent = Math.max(...agg.bySentiment.map((s) => s.count), 1)
+
+  // 규칙으로 계산되는 것들 — LLM도 API 키도 필요 없고, 근거 수치를 그대로 보여줄 수 있다.
+  // 급증 감지는 만들어 두고도 어느 화면에도 연결되지 않아, 운영자가 볼 방법이 없었다.
+  const anomalies = useMemo(() => detectVocAnomalies(calls), [calls])
+  // 카테고리는 '불만' 한 칸이지만 그 안에는 속도 저하·과다 청구·응대 미흡이 섞여 있다.
+  // 넘길 부서가 다르므로, 집계 단위가 원인이어야 조직이 움직인다.
+  const themes = useMemo(() => aggregateThemes(calls), [calls])
+  const maxTheme = Math.max(...themes.themes.map((t) => t.count), 1)
 
   // AI 인사이트 리포트 — 집계 수치만 서버로 보낸다 (통화 원문 미전송)
   const [report, setReport] = useState(null)
@@ -185,7 +210,92 @@ export default function VocPage() {
         </div>
       </div>
 
+      {/* 대시보드는 "무엇이 달라졌는지"를 먼저 말해야 한다 — 막대를 눈으로 비교하게 두면 급증을 놓친다 */}
+      {anomalies.length > 0 && (
+        <section className="voc-alerts" aria-label="이상 감지">
+          {anomalies.map((a) => (
+            <div className={`voc-alert voc-alert-${a.level}`} key={a.id}>
+              <strong>{a.level === 'high' ? '🔴' : '🟡'} {a.label}</strong>
+              <span>{a.detail}</span>
+            </div>
+          ))}
+          <p className="voc-alert-note">
+            규칙으로 계산한 경보입니다 (최소 {3}건 이상 + 이전 일평균의 2배 이상). LLM·API 호출
+            없이 브라우저에서 판정하므로 비용이 들지 않고, 근거 수치를 그대로 보여줍니다.
+          </p>
+        </section>
+      )}
+
       <div className="voc-grid">
+        <section className="voc-card voc-card-wide">
+          <h2>
+            무엇 때문에 전화했나 — 원인별 집계
+            <span className="voc-card-sub">
+              (규칙 기반 · 근거 문장 표시 · 원인마다 처리 부서가 붙습니다)
+            </span>
+          </h2>
+          <p className="result-empty-sub">
+            유형이 '불만' 한 칸이어도 안에는 속도 저하·과다 청구·응대 미흡이 섞여 있습니다. 넘길
+            부서가 서로 다르므로, 집계 단위가 <strong>원인</strong>이어야 조직이 움직입니다.
+          </p>
+          <div className="theme-list">
+            {themes.themes.slice(0, 8).map((t) => (
+              <div className="theme-row" key={t.id}>
+                <div className="theme-head">
+                  <strong>{t.label}</strong>
+                  <span className="theme-dept">{t.dept}</span>
+                  <span className="theme-count">{t.count}건</span>
+                </div>
+                <span className="rank-track">
+                  <span className="rank-fill" style={{ width: `${(t.count / maxTheme) * 100}%` }} />
+                </span>
+                {t.evidence[0] && <p className="theme-evi">“{t.evidence[0]}”</p>}
+              </div>
+            ))}
+          </div>
+          <div className="theme-depts">
+            {themes.byDept.map((d) => (
+              <span className="theme-dept-chip" key={d.dept}>
+                {d.dept} <b>{d.count}건</b>
+              </span>
+            ))}
+          </div>
+          <p className="result-empty-sub">
+            분류된 통화 {Math.round(themes.taggedRate * 100)}%
+            {themes.untagged.length > 0 && (
+              <>
+                {' '}· 사전에 없는 표현이라 분류하지 못한 통화 <strong>{themes.untagged.length}건</strong> —
+                억지로 '기타'에 넣지 않고 드러냅니다. 반복되면 원인 사전에 추가할 지점입니다.
+              </>
+            )}
+          </p>
+        </section>
+
+        {themes.repeats.length > 0 && (
+          <section className="voc-card voc-card-wide">
+            <h2>
+              같은 문제로 다시 걸려온 통화 {themes.repeats.length}건
+              <span className="voc-card-sub">(1선 종결 실패의 직접 증거)</span>
+            </h2>
+            {themes.repeats.map((r) => (
+              <div className="review-card escalated voc-esc" key={r.call.id}>
+                <div className="review-head">
+                  <span className="escalate-badge">🔁 재문의</span>
+                  <span className="usage-note">
+                    {r.call.date} · {r.call.agent || '내 분석'}
+                  </span>
+                </div>
+                <p className="review-original">{r.call.title}</p>
+                <p className="theme-evi">“{r.evidence}”</p>
+              </div>
+            ))}
+            <p className="result-empty-sub">
+              재문의는 응대 품질이 아니라 <strong>처리 완결성</strong>의 지표입니다. 같은 원인이 반복되면
+              통화당 처리시간을 줄이는 것보다 그 원인을 없애는 편이 총 통화 수를 줄입니다.
+            </p>
+          </section>
+        )}
+
         <section className="voc-card">
           <h2>문의 유형별 건수</h2>
           <div className="rank-bars">
@@ -232,7 +342,13 @@ export default function VocPage() {
                 위 집계를 LLM이 읽고 "무엇이 몰리고, 어디서 강성이 나오는지"와 실행 가능한 권고
                 액션을 리포트로 작성합니다.
               </p>
-              <button type="button" className="btn-primary" onClick={generateReport} disabled={reporting}>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={generateReport}
+                disabled={reporting}
+                aria-busy={reporting}
+              >
                 {reporting ? '리포트 작성 중... (5~15초)' : '📋 AI 인사이트 리포트 생성'}
               </button>
               {reportError && <p className="form-error" role="alert">{reportError}</p>}
@@ -245,6 +361,7 @@ export default function VocPage() {
                 {report.demo && <DemoBadge />}
                 <UsageNote usage={report.usage} />
                 <OssLlmNote model={report.llm_model} />
+                <NumbersVerifiedBadge verified={report.numbers_verified} />
               </div>
               <p className="voc-report-headline">{report.headline}</p>
               <strong>핵심 발견</strong>

@@ -8,13 +8,28 @@ import { computeCer } from '../lib/cer.js'
 import { applyLexicon, buildCustomLexicon, MAX_CUSTOM_TERMS } from '../lib/domainLexicon.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { useRecorder } from '../lib/useRecorder.js'
-import { chunkAudioFile, bufferToB64, CHUNK_SECONDS, MAX_CHUNKS } from '../lib/audioChunk.js'
+import {
+  chunkAudioFile,
+  bufferToB64,
+  describeUpload,
+  needsChunking,
+  toMb,
+  CHUNK_SECONDS,
+  MAX_CHUNKS,
+  SINGLE_SHOT_MAX_BYTES,
+  SINGLE_SHOT_MAX_SECONDS,
+} from '../lib/audioChunk.js'
 // 화면에 적는 상한은 코드 상수에서 계산한다 — 문구와 동작이 어긋나지 않게.
 const CHUNK_LIMIT_MIN = Math.floor((MAX_CHUNKS * CHUNK_SECONDS) / 60)
+const SINGLE_SHOT_MAX_MB = toMb(SINGLE_SHOT_MAX_BYTES)
+const SINGLE_SHOT_MAX_MIN = Math.floor(SINGLE_SHOT_MAX_SECONDS / 60)
 import { usePersistentState } from '../lib/persist.js'
 
-const CHUNK_THRESHOLD_BYTES = 4 * 1024 * 1024
 const MODELS_LABEL = '@cf/openai/whisper-large-v3-turbo'
+
+// 단발 전사가 이런 이유로 실패하면 분할 전사로 다시 시도해 볼 값이 있다(길이·지연 계열).
+// 예산 초과(429)나 보안 검증 실패(403)는 다시 보내도 같은 결과라 재시도하지 않는다.
+const RETRY_AS_CHUNKED = /지연|너무 큽니다/
 
 const GEN_STEPS = [
   '음성 파일을 서버로 전송하고 있어요',
@@ -28,6 +43,17 @@ const MAX_COMPARE_BYTES = 2 * 1024 * 1024
 const MAX_UPLOAD_BYTES = 40 * 1024 * 1024
 // CER은 O(n·m) DP다. 타이핑마다 재계산되므로 긴 전사에서는 계산을 건너뛴다.
 const MAX_CER_CELLS = 2_000_000
+
+const TABS = [
+  { id: 'file', label: '녹음·파일 업로드' },
+  { id: 'text', label: '텍스트 직접 입력 (음성 없이 시연)' },
+]
+
+// 지연 표시 — 데모 응답의 시간은 추론 시간이 아니라 요청 처리 시간이므로 그렇게 적는다
+function latencyText(ms, demo) {
+  if (ms == null) return '—'
+  return `${(ms / 1000).toFixed(1)}초${demo ? ' (데모)' : ''}`
+}
 
 // data URL에서 base64 본문만 추출한다
 function fileToBase64(file) {
@@ -58,7 +84,11 @@ export default function SttPage() {
   const [diarizing, setDiarizing] = useState(false)
   const [diaMeta, setDiaMeta] = useState(null)
   const [audioUrl, setAudioUrl] = useState('')
+  // 미리듣기 요소가 읽어 준 길이 — 분할 여부·청크 수를 업로드 전에 정확히 알리는 데 쓴다.
+  // 디코딩 비용을 따로 치르지 않고 얻는 값이라 공짜다. (읽히기 전에는 null)
+  const [durationSec, setDurationSec] = useState(null)
   const resultRef = useRef(null)
+  const tabRefs = useRef({})
   // 전사 요청이 진행 중인지 — 버튼 disabled만으로는 막히지 않는 이중 실행을 막는다.
   // (샘플 데모는 wav를 받는 동안 loading이 아직 false여서 두 번 클릭이 가능했다)
   const busyRef = useRef(false)
@@ -67,6 +97,9 @@ export default function SttPage() {
   // 선택·녹음된 음성을 미리 들어볼 수 있게 objectURL을 관리한다
   function setFileWithPreview(f) {
     setFile(f)
+    // 새 파일의 길이를 알기 전까지는 이전 파일의 길이를 남겨두면 안 된다 —
+    // 30초 파일 뒤에 20분 파일을 고르면 "단발 1회"라고 잘못 안내한다.
+    setDurationSec(null)
     setAudioUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev)
       const next = f ? URL.createObjectURL(f) : ''
@@ -135,7 +168,7 @@ export default function SttPage() {
 
   // 장시간 녹취 분할 전사 — 6MB·단발 호출 한계를 클라이언트 분할로 돌파한다
   const [chunkNote, setChunkNote] = useState('')
-  async function transcribeLong(theFile) {
+  async function transcribeLong(theFile, leadNote = '') {
     setLoading(true)
     setError('')
     setAltResult(null)
@@ -154,7 +187,7 @@ export default function SttPage() {
         model: `${MODELS_LABEL} · 분할 전사 ${texts.length}/${chunkCount}청크`,
         latency: Date.now() - startedAt,
         chunked: texts.length,
-        notice: note,
+        notice: [leadNote, note].filter(Boolean).join(' ') || undefined,
       })
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
       return true
@@ -207,9 +240,11 @@ export default function SttPage() {
     }
     busyRef.current = true
     try {
-      // 단발 호출 한도(6MB)를 넘는 긴 녹취는 오류가 아니라 분할 전사로 자동 전환한다.
+      // 단발 호출 한도를 넘는 긴 녹취는 오류가 아니라 분할 전사로 자동 전환한다.
+      // 판정 기준을 서버 한도에서 끌어오므로(needsChunking), 예전처럼 4MB 파일을
+      // 단발로 보낼 수 있는데도 6청크로 쪼개 유료 호출을 6번 쓰는 일이 없다.
       // 비교 모드는 위에서 2MB로 이미 걸러졌으므로 여기 오는 건 비교가 아닌 경로다.
-      if (theFile.size > CHUNK_THRESHOLD_BYTES) {
+      if (needsChunking(theFile.size, durationSec)) {
         await transcribeLong(theFile)
         return
       }
@@ -218,19 +253,27 @@ export default function SttPage() {
       setAltResult(null)
       try {
         const audio_b64 = await fileToBase64(theFile)
-        const data = await postJson('/api/cc/stt', { audio_b64 })
+        // 비교는 한 요청으로 처리한다 — 예전에는 같은 base64를 두 번 올려 대역폭이
+        // 두 배였고 시간당 예산도 2슬롯을 먹었다. compare 필드가 없으면 서버는
+        // 예전과 똑같이 동작한다(다른 화면 하위 호환).
+        const data = await postJson('/api/cc/stt', withCompare ? { audio_b64, compare: true } : { audio_b64 })
         setResult({ ...data, plainText: data.text })
         requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
         if (withCompare) {
-          // 같은 음성을 base whisper로도 전사해 CER을 비교한다 (성능 평가 시연)
-          try {
-            const alt = await postJson('/api/cc/stt', { audio_b64, model: 'base' })
-            setAltResult(alt)
-          } catch (altErr) {
-            setAltResult({ failed: true, notice: `비교 모델 전사 실패: ${altErr.message}` })
-          }
+          if (data.alt?.text) setAltResult(data.alt)
+          else if (data.alt?.error) setAltResult({ failed: true, notice: data.alt.error })
+          // alt 자리가 아예 없는 응답은 서버가 이유를 notice로 설명한 경우다(주 모델 실패 등).
+          // 거기에 "비교 실패"를 덧붙이면 같은 사실을 서로 다른 말로 두 번 알리게 된다.
+          else setAltResult(data.notice ? null : { failed: true, notice: '비교 모델 전사 결과를 받지 못했습니다.' })
         }
       } catch (err) {
+        // 크기는 한도 안이지만 너무 길어 50초 타임아웃에 걸리는 파일이 있다.
+        // 그때 오류만 남기면 "분할하면 성공하는 파일"을 실패로 끝내는 셈이라,
+        // 길이·지연 계열 실패에 한해 분할 전사로 한 번 더 시도한다.
+        if (!withCompare && RETRY_AS_CHUNKED.test(err.message)) {
+          await transcribeLong(theFile, `단발 전사가 실패해 분할 전사로 다시 처리했습니다. (${err.message})`)
+          return
+        }
         setError(err.message)
       } finally {
         setLoading(false)
@@ -302,6 +345,37 @@ export default function SttPage() {
     navigate('/analyze')
   }
 
+  // 탭 사이 좌우 이동 — ARIA 탭 패턴에서 탭들은 하나의 정지점이고 방향키로 옮겨간다.
+  // roving tabindex(선택된 탭만 0)와 짝을 맞춰야 Tab 키가 탭 개수만큼 멈추지 않는다.
+  function onTabKeyDown(e) {
+    const ids = TABS.map((t) => t.id)
+    const i = ids.indexOf(tab)
+    const next =
+      e.key === 'ArrowRight' || e.key === 'ArrowDown'
+        ? ids[(i + 1) % ids.length]
+        : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+          ? ids[(i - 1 + ids.length) % ids.length]
+          : e.key === 'Home'
+            ? ids[0]
+            : e.key === 'End'
+              ? ids[ids.length - 1]
+              : null
+    if (!next) return
+    e.preventDefault()
+    setTab(next)
+    // 포커스를 따라 옮겨야 스크린리더가 새 탭을 읽는다. 렌더 뒤에 옮긴다.
+    requestAnimationFrame(() => tabRefs.current[next]?.focus())
+  }
+
+  // 업로드 전에 처리 방식을 미리 알린다 (조용한 절단·예상 밖의 유료 호출 방지)
+  const uploadPlan = useMemo(
+    () =>
+      file
+        ? describeUpload({ bytes: file.size, durationSec, maxUploadBytes: MAX_UPLOAD_BYTES })
+        : null,
+    [file, durationSec]
+  )
+
   return (
     <div className="tool-page">
       <header className="tool-header">
@@ -316,30 +390,41 @@ export default function SttPage() {
         </p>
       </header>
 
-      <div className="tab-row" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'file'}
-          className={tab === 'file' ? 'tab active' : 'tab'}
-          onClick={() => setTab('file')}
-        >
-          녹음·파일 업로드
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'text'}
-          className={tab === 'text' ? 'tab active' : 'tab'}
-          onClick={() => setTab('text')}
-        >
-          텍스트 직접 입력 (음성 없이 시연)
-        </button>
+      <div className="tab-row" role="tablist" aria-label="전사 입력 방식">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            id={`stt-tab-${t.id}`}
+            // 패널과의 연결을 명시한다 — 예전에는 role만 있어서 스크린리더가
+            // "탭"이라고만 읽고 어느 영역을 제어하는지 알려주지 못했다.
+            // 선택된 탭에만 붙인다: 비활성 패널은 렌더되지 않으므로 없는 id를 가리키면
+            // 검사 도구가 잘못된 aria 값으로 잡고, 보조기술도 얻는 게 없다.
+            aria-controls={tab === t.id ? `stt-panel-${t.id}` : undefined}
+            aria-selected={tab === t.id}
+            tabIndex={tab === t.id ? 0 : -1}
+            ref={(el) => {
+              tabRefs.current[t.id] = el
+            }}
+            className={tab === t.id ? 'tab active' : 'tab'}
+            onClick={() => setTab(t.id)}
+            onKeyDown={onTabKeyDown}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       <div className="tool-layout">
         {tab === 'file' ? (
-          <form className="tool-form" onSubmit={transcribe}>
+          <form
+            className="tool-form"
+            onSubmit={transcribe}
+            role="tabpanel"
+            id="stt-panel-file"
+            aria-labelledby="stt-tab-file"
+          >
             <div className="mic-box">
               <p className="mic-title">가장 빠른 시연 — 클릭 한 번</p>
               <button type="button" className="btn-ghost sample-demo-btn" onClick={runSampleDemo} disabled={loading || recorder.recording}>
@@ -362,7 +447,8 @@ export default function SttPage() {
             </div>
 
             <label>
-              또는 음성 파일 선택 (mp3/wav/m4a/ogg · 4MB 초과 긴 녹취는 자동 분할 전사, 최대 약 {CHUNK_LIMIT_MIN}분)
+              또는 음성 파일 선택 (mp3/wav/m4a/ogg · {SINGLE_SHOT_MAX_MB}MB 또는 {SINGLE_SHOT_MAX_MIN}분을
+              넘는 녹취는 자동 분할 전사, 최대 약 {CHUNK_LIMIT_MIN}분)
               <input
                 type="file"
                 accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm"
@@ -387,27 +473,62 @@ export default function SttPage() {
                 }}
               />
             </label>
-            {file && (
+            {file && uploadPlan && (
               <>
+                {/* 크기·길이·처리 방식(유료 호출 몇 회)을 보내기 전에 알려준다.
+                    예전에는 서버가 조용히 자르거나 6청크로 쪼개는 것을 전사가 끝난 뒤에야 알 수 있었다. */}
                 <p className="batch-meta">
-                  <span className="batch-count ok">
-                    {file.name} · {(file.size / 1024 / 1024).toFixed(2)}MB
+                  <span className={uploadPlan.blocked ? 'batch-count' : 'batch-count ok'}>
+                    {file.name} · {uploadPlan.sizeText}
+                    {uploadPlan.durationText ? ` · ${uploadPlan.durationText}` : ''}
                   </span>
+                  <span className="usage-note">{uploadPlan.detail}</span>
                 </p>
-                {audioUrl && <audio controls src={audioUrl} className="stt-audio" />}
+                {compare && file.size > MAX_COMPARE_BYTES && (
+                  <p className="batch-meta">
+                    <span className="usage-note">
+                      모델 비교는 {toMb(MAX_COMPARE_BYTES, 0)}MB 이하만 가능합니다 — 비교를 끄거나 짧은
+                      음성으로 시연해주세요.
+                    </span>
+                  </p>
+                )}
+                {audioUrl && (
+                  <audio
+                    controls
+                    src={audioUrl}
+                    className="stt-audio"
+                    // 브라우저가 미리듣기용으로 이미 읽는 메타데이터에서 길이를 받는다 —
+                    // 추가 디코딩 비용 없이 분할 여부·청크 수를 정확히 안내할 수 있다.
+                    onLoadedMetadata={(e) => {
+                      const d = e.currentTarget.duration
+                      setDurationSec(Number.isFinite(d) && d > 0 ? d : null)
+                    }}
+                  />
+                )}
               </>
             )}
             <label className="channel-check compare-check">
               <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} />
               Whisper 2종 모델 비교 (large-v3-turbo vs whisper · 2MB 이하 짧은 음성)
             </label>
-            <button type="submit" className="btn-primary" disabled={loading || recorder.recording}>
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={loading || recorder.recording}
+              aria-busy={loading}
+            >
               {loading ? '전사 중... (10~30초)' : compare ? '2종 모델로 전사·비교하기' : 'Whisper로 전사하기'}
             </button>
             {error && <p className="form-error" role="alert">{error}</p>}
           </form>
         ) : (
-          <form className="tool-form" onSubmit={(e) => e.preventDefault()}>
+          <form
+            className="tool-form"
+            onSubmit={(e) => e.preventDefault()}
+            role="tabpanel"
+            id="stt-panel-text"
+            aria-labelledby="stt-tab-text"
+          >
             <label>
               통화 텍스트 — 상담사:/고객: 형식 권장
               <textarea value={text} onChange={(e) => setText(e.target.value)} rows={12} />
@@ -599,13 +720,13 @@ export default function SttPage() {
                         <td>whisper-large-v3-turbo</td>
                         <td className="req-name">{(cer.cer * 100).toFixed(1)}%</td>
                         <td>{(cer.accuracy * 100).toFixed(1)}%</td>
-                        <td>{result?.latency != null ? `${(result.latency / 1000).toFixed(1)}초` : '—'}</td>
+                        <td>{latencyText(result?.latency, result?.demo)}</td>
                       </tr>
                       <tr>
                         <td>whisper (base)</td>
                         <td className="req-name">{(altCer.cer * 100).toFixed(1)}%</td>
                         <td>{(altCer.accuracy * 100).toFixed(1)}%</td>
-                        <td>{altResult.latency != null ? `${(altResult.latency / 1000).toFixed(1)}초` : '—'}</td>
+                        <td>{latencyText(altResult.latency, altResult.demo)}</td>
                       </tr>
                     </tbody>
                   </table>

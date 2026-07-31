@@ -68,3 +68,18 @@ textarea {
 a {
   color: inherit;
 }
+
+/* "동작 줄이기"를 켠 사용자에게는 전환·애니메이션을 사실상 제거한다.
+   0s가 아니라 0.01ms로 두는 이유: duration 0이면 transitionend/animationend가
+   발화하지 않는 브라우저가 있어, 그 이벤트를 기다리는 코드가 멈춰 버린다.
+   (JS 쪽 스크롤 감축 판정은 src/components/motion.js에 있다) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

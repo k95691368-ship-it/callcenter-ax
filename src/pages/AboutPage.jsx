@@ -75,16 +75,21 @@ export default function AboutPage() {
   // 실측 운영 지표 — /api/cc/stats가 D1 텔레메트리 집계를 반환한다
   const [stats, setStats] = useState(null)
   useEffect(() => {
-    fetch('/api/cc/health')
+    // 두 요청은 D1 집계라 수 초가 걸릴 수 있다. 응답 전에 다른 화면으로 이동하면
+    // 언마운트된 컴포넌트에 setState가 실행되므로, cleanup에서 요청을 취소한다.
+    // (abort는 fetch를 reject시키므로 아래 catch가 그대로 삼킨다)
+    const ac = new AbortController()
+    fetch('/api/cc/health', { signal: ac.signal })
       .then((r) => r.json())
       .then(setHealth)
       .catch(() => {})
-    fetch('/api/cc/stats')
+    fetch('/api/cc/stats', { signal: ac.signal })
       .then((r) => r.json())
       .then((d) => {
         if (d?.ok) setStats({ summary: summarizeStats(d.rows), since: d.since })
       })
       .catch(() => {})
+    return () => ac.abort()
   }, [])
 
   return (

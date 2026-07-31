@@ -31,6 +31,14 @@ export function buildPipelineReport({ stt, lex, dia, analysis, qa, stageErrors =
   }
 
   failed('analyze', '④ 통화 분석')
+  if (analysis?.churn && Number.isFinite(analysis.churn.score)) {
+    const c = analysis.churn
+    lines.push(
+      `④-1 이탈 위험: ${c.score}점 (${c.level}) · 권고 조치: ${c.action}` +
+        `${c.estimated ? ' · 규칙 기반 추정' : ''}${c.adjusted ? ' · 규칙 신호로 보정' : ''}`
+    )
+    if (c.signals?.length) lines.push(`     위험 신호: ${c.signals.map((s) => s.label).join(', ')}`)
+  }
   if (analysis) {
     lines.push(
       `④ 통화 분석 — 유형: ${analysis.category} / 감정: ${analysis.sentiment}${
@@ -54,6 +62,11 @@ export function buildPipelineReport({ stt, lex, dia, analysis, qa, stageErrors =
 
   if (!failed('voc', '⑥ VOC 누적')) {
     lines.push('⑥ VOC 대시보드에 누적 완료 — callcenter-ax.pages.dev/voc')
+  }
+
+  // 인수인계 문서의 마지막은 "그래서 누가 무엇을 하는가"여야 한다.
+  if (analysis?.ticket) {
+    lines.push('', '─── 에스컬레이션 티켓 초안 ───', analysis.ticket.text)
   }
   return lines.join('\n')
 }

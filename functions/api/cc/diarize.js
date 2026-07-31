@@ -6,6 +6,7 @@ import { runLlmLadder } from '../../_lib/ladder.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { preservesOriginal, MAX_DIARIZE_CER } from '../../../src/lib/diarizeGuard.js'
+import { computeCallMetrics, diagnoseCallMetrics } from '../../../src/lib/callMetrics.js'
 
 // 간이 화자 분리 — Whisper 전사(화자 구분 없는 통짜 텍스트)를 상담사:/고객: 형식으로
 // 재구성한다. Auto QA의 "상담사 발화만 평가" 규칙 층이 STT 결과에도 동작하게 만드는
@@ -95,6 +96,10 @@ export async function onRequestPost(context) {
           : `화자 분리 결과가 원문과 ${Math.round(MAX_DIARIZE_CER * 100)}% 넘게 달라 원문을 유지합니다 (원문 보존 게이트).`,
       })
     }
+    // 화자를 나눈 것 자체가 목적이 아니다. 라벨이 생기면 그때부터 계산할 수 있는 것들
+    // — 발화 비율, 연속 발화, 확인 질문, 공감 표현 — 이 있고, 그게 분리의 값어치다.
+    // 전부 텍스트만으로 계산되므로 추가 AI 호출이 없다.
+    const metrics = computeCallMetrics(r.input.formatted)
     logCall(context, { endpoint: 'diarize', mode: r.engine === 'claude' ? 'live' : 'live-oss', startedAt, usage: r.usage })
     return json({
       demo: false,
@@ -102,6 +107,8 @@ export async function onRequestPost(context) {
       llm_model: r.model,
       formatted: r.input.formatted,
       ...truncation,
+      metrics,
+      metrics_diagnosis: diagnoseCallMetrics(metrics),
       preserved_cer: Math.round(guard.cer * 1000) / 1000,
       notice: truncation.truncated
         ? `전사가 길어 앞 ${transcript.length}자에만 화자 분리를 적용했습니다. 나머지는 원문 그대로 이어 붙였습니다.`

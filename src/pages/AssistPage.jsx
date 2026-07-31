@@ -3,6 +3,11 @@ import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
+import CharCount from '../components/CharCount.jsx'
+import { revealElement } from '../components/motion.js'
+
+// 서버가 조용히 잘라내는 상한 (functions/api/cc/assist.js의 MAX_CHARS)
+const MAX_DIALOGUE_CHARS = 4000
 
 const GEN_STEPS = [
   '진행 중인 대화의 맥락을 읽고 있어요',
@@ -23,6 +28,9 @@ export default function AssistPage() {
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [copiedIdx, setCopiedIdx] = useState(-1)
+  // 복사 실패를 좌측 폼의 setError로 보내면 화면 반대편에 떠서, 어느 멘트의 복사가
+  // 실패했는지조차 알 수 없다. 실패한 제안 옆에 붙도록 인덱스로 들고 있는다.
+  const [copyFailIdx, setCopyFailIdx] = useState(-1)
   const copyTimerRef = useRef(null)
   useEffect(() => () => clearTimeout(copyTimerRef.current), [])
   const resultRef = useRef(null)
@@ -38,7 +46,7 @@ export default function AssistPage() {
     try {
       const data = await postJson('/api/cc/assist', { dialogue })
       setResult(data)
-      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+      requestAnimationFrame(() => revealElement(resultRef.current))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -50,10 +58,11 @@ export default function AssistPage() {
     try {
       await navigator.clipboard.writeText(text)
       setCopiedIdx(i)
+      setCopyFailIdx(-1)
       clearTimeout(copyTimerRef.current)
       copyTimerRef.current = setTimeout(() => setCopiedIdx(-1), 1500)
     } catch {
-      setError('클립보드 복사에 실패했습니다.')
+      setCopyFailIdx(i)
     }
   }
 
@@ -77,12 +86,13 @@ export default function AssistPage() {
             진행 중인 상담 대화 — 상담사:/고객: 형식
             <textarea value={dialogue} onChange={(e) => setDialogue(e.target.value)} rows={11} />
           </label>
+          <CharCount value={dialogue} max={MAX_DIALOGUE_CHARS} />
           <div className="batch-meta">
             <button type="button" className="preset-chip" onClick={() => setDialogue(SAMPLE_DIALOGUE)}>
               샘플: 위약금 항의 격화 중
             </button>
           </div>
-          <button type="submit" className="btn-primary" disabled={loading}>
+          <button type="submit" className="btn-primary" disabled={loading} aria-busy={loading}>
             {loading ? '제안 생성 중... (5~20초)' : '다음 응대 제안받기'}
           </button>
           {error && <p className="form-error" role="alert">{error}</p>}
@@ -121,9 +131,16 @@ export default function AssistPage() {
                   {(result.suggestions || []).map((s, i) => (
                     <li key={i} className="assist-suggestion">
                       <p>"{s}"</p>
-                      <button type="button" className="preset-chip" onClick={() => copySuggestion(s, i)}>
-                        {copiedIdx === i ? '✓ 복사됨' : '멘트 복사'}
-                      </button>
+                      <div className="copy-row">
+                        <button type="button" className="preset-chip" onClick={() => copySuggestion(s, i)}>
+                          {copiedIdx === i ? '✓ 복사됨' : '멘트 복사'}
+                        </button>
+                        {copyFailIdx === i && (
+                          <span className="copy-error" role="alert">
+                            복사 실패 — 위 멘트를 직접 선택해 복사해주세요.
+                          </span>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>

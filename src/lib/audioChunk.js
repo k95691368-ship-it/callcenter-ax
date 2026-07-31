@@ -6,6 +6,105 @@ export const TARGET_RATE = 16000
 export const CHUNK_SECONDS = 55
 export const MAX_CHUNKS = 30 // 약 27분 — 시간당 전사 예산(30회) 안에서 완주 가능한 상한
 
+// ===== 단발 호출 / 분할 전사 판정 =====
+// 이 판정은 서버 한도와 한 곳에서 맞춰야 한다. 예전에는 화면이 4MB부터 분할했는데
+// 서버(functions/api/cc/stt.js MAX_B64_LENGTH)는 base64 8.4M자(원본 약 6MB)까지 받았다.
+// 그래서 5MB mp3(약 5분)가 단발 1회로 끝날 수 있는데도 6청크로 쪼개져 유료 전사 호출을
+// 6번 쓰고, 시간당 IP 예산도 6칸을 먹었다. tests/sttPipeline.test.js가 두 상수의 불일치를 잡는다.
+export const SERVER_MAX_B64_LENGTH = 8_400_000
+
+// base64는 원본 3바이트를 4자로 늘리고 4의 배수로 패딩한다
+export function b64Length(byteLength) {
+  return byteLength > 0 ? 4 * Math.ceil(byteLength / 3) : 0
+}
+
+// 단발 호출로 보낼 수 있는 원본 크기 상한.
+// 서버 한도를 원본 바이트로 환산(÷4×3)한 뒤 64KB를 뺀다 — 한도에 딱 붙여 보내면
+// 계산 오차 하나로 6MB를 업로드하고 413만 받는(순수 낭비) 경우가 생긴다.
+export const SINGLE_SHOT_MAX_BYTES = Math.floor(SERVER_MAX_B64_LENGTH / 4) * 3 - 64 * 1024
+
+// 크기가 맞아도 너무 긴 음성은 나눠 보낸다. 서버의 Whisper 호출 타임아웃이 50초이고,
+// 55초 청크가 그 안에 끝나는 것은 확인됐지만 6분짜리 한 방이 끝난다는 보장은 없다.
+// 한 번에 실패해 전부 잃는 것보다 나눠 보내는 편이 낫다.
+export const SINGLE_SHOT_MAX_SECONDS = 300
+
+// 분할이 필요한지 — 길이는 알 수 있을 때만 본다(선택 직후에는 아직 모를 수 있다)
+export function needsChunking(byteLength, durationSec = null) {
+  if (!(byteLength > 0)) return false
+  if (byteLength > SINGLE_SHOT_MAX_BYTES) return true
+  return durationSec > 0 && durationSec > SINGLE_SHOT_MAX_SECONDS
+}
+
+export function toMb(bytes, digits = 1) {
+  return (Math.max(0, bytes) / 1024 / 1024).toFixed(digits)
+}
+
+export function formatDuration(sec) {
+  if (!(sec > 0)) return ''
+  const total = Math.round(sec)
+  const m = Math.floor(total / 60)
+  return m > 0 ? `${m}분 ${total % 60}초` : `${total}초`
+}
+
+// 파일을 고른 직후 "이 파일이 어떻게 처리되는가"를 미리 알려주기 위한 계산 (순수 함수).
+// 서버가 조용히 자르거나, 분할 전사가 유료 호출을 몇 번 쓰는지 전사가 끝난 뒤에야
+// 알게 되던 것을 막는다.
+export function describeUpload({
+  bytes = 0,
+  durationSec = null,
+  maxUploadBytes = 0,
+  chunkSec = CHUNK_SECONDS,
+} = {}) {
+  const sizeText = `${toMb(bytes, 2)}MB`
+  const durationText = formatDuration(durationSec)
+  const limitMin = Math.floor((MAX_CHUNKS * chunkSec) / 60)
+  const base = { sizeText, durationText }
+
+  if (maxUploadBytes > 0 && bytes > maxUploadBytes) {
+    return {
+      ...base,
+      mode: 'too-large',
+      chunks: 0,
+      calls: 0,
+      blocked: true,
+      detail: `업로드 상한 ${toMb(maxUploadBytes, 0)}MB를 넘습니다 — 파일을 나눠 올려주세요`,
+    }
+  }
+  if (durationSec > 0 && exceedsChunkLimit(durationSec, chunkSec)) {
+    return {
+      ...base,
+      mode: 'too-long',
+      chunks: 0,
+      calls: 0,
+      blocked: true,
+      detail: `약 ${limitMin}분(청크 ${MAX_CHUNKS}개)까지 지원합니다 — 이 파일은 ${durationText}입니다`,
+    }
+  }
+  if (!needsChunking(bytes, durationSec)) {
+    return {
+      ...base,
+      mode: 'single',
+      chunks: 1,
+      calls: 1,
+      blocked: false,
+      detail: `단발 전사 1회로 처리됩니다 (한 번에 ${toMb(SINGLE_SHOT_MAX_BYTES)}MB · ${Math.floor(SINGLE_SHOT_MAX_SECONDS / 60)}분까지)`,
+    }
+  }
+  // 길이를 모르면 청크 수를 셀 수 없다. 아는 척하는 숫자보다 "디코딩 후 확정"이 정직하다.
+  const chunks = durationSec > 0 ? planChunks(durationSec, chunkSec).length : 0
+  return {
+    ...base,
+    mode: 'chunked',
+    chunks,
+    calls: chunks,
+    blocked: false,
+    detail:
+      chunks > 0
+        ? `자동 분할 전사 — ${chunkSec}초씩 ${chunks}청크(전사 호출 ${chunks}회)로 나눠 보냅니다`
+        : `자동 분할 전사 — ${chunkSec}초씩 나눠 보냅니다 (청크 수는 디코딩 후 확정)`,
+  }
+}
+
 // 전체 길이를 청크 경계 목록으로 나눈다 (순수 함수)
 // chunkSec을 검증하지 않으면 0에서 length: Infinity, 음수에서 조용한 빈 배열이 나온다.
 export function planChunks(durationSec, chunkSec = CHUNK_SECONDS) {
