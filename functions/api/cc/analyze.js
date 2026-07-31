@@ -107,7 +107,10 @@ ${CALL_SAFETY_RULES}`
 export function demoAnalyze(transcript) {
   const t = transcript || ''
   const hot = /(소송|법적|신고|언론|제보|사기|고소)/.test(t)
-  const angry = hot || /(말도 안|당장|화가|어이가 없)/.test(t)
+  // '화가'를 그대로 쓰면 표준 녹취 고지인 "통화가 녹음됩니다"에 걸려,
+  // 규정을 지킨 평온한 통화가 전부 '불만·강성'으로 분류됐다(키 없이 여는 데모 경로 전체).
+  // 감정을 나타내는 연결형까지 함께 본다.
+  const angry = hot || /(말도 안|당장|화가\s*(나|치)|어이가 없)/.test(t)
 
   let category = '기타'
   if (/(해지|위약금|이전 설치)/.test(t)) category = '해지'

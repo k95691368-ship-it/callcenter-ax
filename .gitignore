@@ -3,3 +3,9 @@ dist/
 .wrangler/
 .env
 *.local
+
+# wrangler 로컬 시크릿 — dev:full 이 읽는 파일이다.
+# .env만 무시하고 있었는데 wrangler 규약은 .dev.vars라, API 키를 여기 넣고 커밋하면
+# 그대로 공개 저장소에 올라간다. 이름이 비슷해서 더 놓치기 쉽다.
+.dev.vars
+.dev.vars.*

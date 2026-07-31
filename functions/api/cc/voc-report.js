@@ -40,6 +40,24 @@ const SYSTEM = `당신은 콜센터 운영 분석가입니다. VOC 집계 수치
 3. recommendations는 담당자가 내일 실행할 수 있는 구체적 액션으로.
 ${CALL_SAFETY_RULES}`
 
+// 부정 감정 통화가 실제로 몇 건인지 세어 말한다.
+//
+// 예전에는 "강성·부정 감정 통화가 전체의 일부를 차지해 품질 모니터링이 필요합니다"를
+// 집계와 무관한 고정 문장으로 적었다. bySentiment를 인자로 받고도 읽지 않아서,
+// 부정 통화가 한 건도 없는 날에도 있다고 단언했다. 규칙 기반 데모라도 지어내면 안 된다 —
+// 오히려 데모는 키 없이 열어보는 심사자가 가장 먼저 보는 화면이다.
+function negativeFinding(stats) {
+  const rows = Array.isArray(stats?.bySentiment) ? stats.bySentiment : []
+  const negative = rows
+    .filter((s) => /부정|강성/.test(String(s?.name ?? '')))
+    .reduce((sum, s) => sum + (Number(s?.count) || 0), 0)
+  const total = Number(stats?.total) || 0
+  if (!rows.length) return '감정 분포 데이터가 없어 품질 모니터링 대상은 판단하지 않았습니다.'
+  if (negative === 0) return '이번 집계에는 강성·부정 감정으로 분류된 통화가 없습니다.'
+  const share = total > 0 ? ` (전체 ${total}건 중 ${Math.round((negative / total) * 100)}%)` : ''
+  return `강성·부정 감정 통화가 ${negative}건${share} 있어 품질 모니터링이 필요합니다.`
+}
+
 function demoReport(stats) {
   const top = [...(stats.byCategory || [])].sort((a, b) => b.count - a.count)[0]
   return {
@@ -47,7 +65,7 @@ function demoReport(stats) {
     headline: `총 ${stats.total}건 중 ${top ? `'${top.name}' 유형이 ${top.count}건으로 최다` : '유형별 분포 확인 필요'}, 에스컬레이션 ${stats.escalatedCount}건 대기`,
     findings: [
       top ? `${top.name} 문의가 ${top.count}건으로 가장 많아 반복 문의 소지가 있습니다.` : '집계 데이터가 부족합니다.',
-      `강성·부정 감정 통화가 전체의 일부를 차지해 품질 모니터링이 필요합니다.`,
+      negativeFinding(stats),
     ],
     recommendations: [
       top ? `${top.name} 유형의 자주 묻는 절차를 상담 스크립트/ARS 안내로 선제 제공` : '유형별 분류 데이터 축적',

@@ -25,7 +25,13 @@ const BODIES = {
   diarize: { transcript: '안녕하세요 한빛텔레콤입니다 요금이 이상해서 전화드렸어요' },
   guide: { transcript: '고객: 해지하고 싶은데요 위약금이 얼마죠' },
   stt: { audio_b64: 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=' },
-  'voc-report': { stats: { total: 3, byCategory: [{ name: '요금', count: 2 }] } },
+  // 집계 필드는 본문 최상위다 — stats로 감싸면 400이 나서 성공 경로를 못 밟는다
+  'voc-report': {
+    total: 3,
+    escalatedCount: 1,
+    byCategory: [{ name: '요금', count: 2 }],
+    bySentiment: [{ name: '중립', count: 2 }, { name: '부정', count: 1 }],
+  },
 }
 
 // 답이 없어야 정상인 질의 — 기권 경로를 실제로 밟는다(이번 결함이 났던 자리다).
