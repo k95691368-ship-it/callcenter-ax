@@ -59,7 +59,7 @@ STT(Whisper)·임베딩(bge-m3)·LLM(Llama)까지 **오픈소스 전 스택**으
 브라우저 (React 19 + Vite, 국내 핀테크풍 디자인 언어 · Pretendard)
    │  CER·도메인 보정·QA 규칙 스캐너(서버와 공유) · Turnstile 토큰
    ▼
-Cloudflare Pages Functions  /api/cc/{stt, diarize, analyze, analyze-batch, qa, search, assist, voc-report, stats, health}
+Cloudflare Pages Functions  /api/cc/{stt, diarize, analyze, analyze-batch, qa, search, assist, guide, voc-report, stats, health}
    ├─ Workers AI  : Whisper ×2 (STT) · bge-m3 (임베딩) · Llama 3.3 70B (LLM 폴백)
    ├─ Claude Opus 5 : tool 강제 호출 → ensureContract 응답 계약 검증
    └─ D1 : 레이트리밋 카운터(IP 해시, 날짜별 회전 · 최대 24시간) · AI 호출 텔레메트리 (입력·IP 미저장)
@@ -101,7 +101,7 @@ npm run dev:full   # 빌드 + wrangler pages dev (Functions 포함)
 npm test           # vitest 174개 (QA 점수·커스텀 규칙·CER 상한 DP·도메인 보정·RRF 융합·
                    #              계약 검증·폴백 사다리·운영 지표·프라이버시 불변식)
 npm run lint       # oxlint
-npm run smoke      # 배포된 사이트 7종 점검 (AI 비용 없이: 라우팅·헬스·집계·정적 자산·
+npm run smoke      # 배포된 사이트 8종 점검 (AI 비용 없이: 라우팅·헬스·집계·정적 자산·
                    #                          보안 헤더·빈 입력 400)
 git push           # Cloudflare Pages Git 연동 자동 빌드·배포 (wrangler.toml 바인딩 자동 적용)
 ```

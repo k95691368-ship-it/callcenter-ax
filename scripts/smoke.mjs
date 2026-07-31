@@ -61,8 +61,28 @@ await check('보안 응답 헤더 (nosniff·frame·referrer·permissions)', asyn
   }
 })
 
-await check('빈 입력 검증 (400) — analyze·assist·analyze-batch', async () => {
-  for (const ep of ['/api/cc/analyze', '/api/cc/assist', '/api/cc/analyze-batch']) {
+// 규칙 전용 엔드포인트라 AI 비용이 들지 않는다 — 스모크에서 판정 내용까지 확인할 수 있는
+// 유일한 기능이므로, 응답 형태만 보지 말고 실제로 맞게 판단하는지까지 검사한다.
+await check('통화 중 가이드 (규칙 엔진 — AI 비용 없이 동작 확인)', async () => {
+  const res = await fetch(`${BASE}/api/cc/guide`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      dialogue: '상담사: 안녕하세요 한빛텔레콤입니다\n고객: 해지하고 싶은데요',
+    }),
+    signal: AbortSignal.timeout(15000),
+  })
+  if (res.status !== 200) throw new Error(`status ${res.status}`)
+  const d = await res.json()
+  if (d.engine !== 'rules') throw new Error(`engine=${d.engine} (rules여야 함)`)
+  // 첫인사는 했고 녹취 고지는 안 한 상태 → 다음 할 일로 녹취 고지가 나와야 한다
+  if (!d.nextActions?.some((a) => a.id === 'recording')) throw new Error('녹취 고지 제안 누락')
+  // 고객의 해지 의사는 경보로 잡혀야 한다
+  if (!d.alerts?.some((a) => a.kind === 'risk')) throw new Error('이탈 위험 경보 누락')
+})
+
+await check('빈 입력 검증 (400) — analyze·assist·analyze-batch·guide', async () => {
+  for (const ep of ['/api/cc/analyze', '/api/cc/assist', '/api/cc/analyze-batch', '/api/cc/guide']) {
     const res = await fetch(`${BASE}${ep}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

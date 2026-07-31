@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   detectCategorySpikes,
   detectRatioAlerts,
+  detectThemeSpikes,
+  detectRepeatAlert,
   detectVocAnomalies,
   MIN_ABSOLUTE,
 } from '../src/lib/vocAnomaly.js'
@@ -99,6 +101,93 @@ describe('detectRatioAlerts', () => {
   it('평온한 집계에서는 경보가 없다', () => {
     const calls = Array.from({ length: 10 }, () => call('2026-07-28', '요금', '중립', false))
     expect(detectRatioAlerts(calls)).toEqual([])
+  })
+})
+
+describe('detectThemeSpikes — "불만이 늘었다"가 아니라 "무엇이 늘었고 어디로 넘길지"', () => {
+  const voiced = (date, line, category = '불만') => ({
+    date,
+    title: '',
+    transcript: `고객: ${line}`,
+    analysis: { category, sentiment: '부정', escalate: false },
+  })
+
+  it('원인별로 급증을 잡고 처리 부서를 함께 돌려준다', () => {
+    const calls = [
+      voiced('2026-07-26', '요금제 바꾸고 싶어요', '요금'),
+      voiced('2026-07-27', '자동이체 날짜 변경할게요', '요금'),
+      voiced('2026-07-28', '인터넷이 자꾸 끊겨요'),
+      voiced('2026-07-28', '속도가 너무 느려요'),
+      voiced('2026-07-28', '어제부터 인터넷이 안 돼요'),
+    ]
+    const spikes = detectThemeSpikes(calls)
+    const speed = spikes.find((s) => s.theme === 'speed')
+    expect(speed).toBeTruthy()
+    expect(speed.now).toBe(3)
+    expect(speed.dept).toBe('네트워크 운영팀')
+    expect(speed.label).toContain('네트워크 운영팀')
+    expect(speed.detail).toContain('공유가 필요')
+  })
+
+  it('같은 카테고리라도 원인이 다르면 따로 센다', () => {
+    // 넷 다 '불만'이지만 속도 3건 + 과다청구 1건이다. 카테고리로만 보면 구분되지 않는다.
+    const calls = [
+      voiced('2026-07-26', '요금제 문의요', '요금'),
+      voiced('2026-07-27', '납부일 바꿔주세요', '요금'),
+      voiced('2026-07-28', '인터넷이 끊겨요'),
+      voiced('2026-07-28', '속도가 느려요'),
+      voiced('2026-07-28', '접속이 안 돼요'),
+      voiced('2026-07-28', '요금이 왜 이렇게 많이 나왔죠'),
+    ]
+    const ids = detectThemeSpikes(calls).map((s) => s.theme)
+    expect(ids).toContain('speed')
+    expect(ids).not.toContain('overcharge') // 1건은 최소 건수 미달 — 남발하지 않는다
+  })
+
+  it('표본이 적으면 원인 급증도 경보하지 않는다', () => {
+    const calls = [
+      voiced('2026-07-27', '요금제 문의', '요금'),
+      voiced('2026-07-28', '인터넷이 끊겨요'),
+      voiced('2026-07-28', '느려요'),
+    ]
+    expect(detectThemeSpikes(calls)).toEqual([])
+  })
+
+  it('날짜가 부족하거나 빈 입력이면 판단하지 않는다', () => {
+    expect(detectThemeSpikes([])).toEqual([])
+    expect(detectThemeSpikes(null)).toEqual([])
+  })
+})
+
+describe('detectRepeatAlert — 1선 종결이 안 되고 있다는 신호', () => {
+  const repeat = (line) => ({
+    date: '2026-07-28',
+    title: '',
+    transcript: `고객: ${line}`,
+    analysis: { category: '불만', sentiment: '부정', escalate: false },
+  })
+
+  it('재문의 비율이 임계를 넘으면 경보한다', () => {
+    const calls = [
+      repeat('또 느려졌어요'),
+      repeat('벌써 세 번째예요'),
+      repeat('지난주에도 말했는데요'),
+      repeat('요금제 바꿔주세요'),
+      repeat('가입하려고요'),
+      repeat('납부일 변경할게요'),
+    ]
+    const alerts = detectRepeatAlert(calls)
+    expect(alerts[0].id).toBe('repeat-ratio')
+    expect(alerts[0].detail).toContain('1선 종결')
+  })
+
+  it('첫 문의만 있으면 경보하지 않는다', () => {
+    const calls = Array.from({ length: 6 }, () => repeat('신규 가입하려고요'))
+    expect(detectRepeatAlert(calls)).toEqual([])
+  })
+
+  it('표본이 5건 미만이면 비율을 말하지 않는다', () => {
+    expect(detectRepeatAlert([repeat('또 느려졌어요')])).toEqual([])
   })
 })
 
