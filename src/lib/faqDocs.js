@@ -45,7 +45,8 @@ export const FAQ_DOCS = [
   },
 ]
 
-// 한국어 토큰 추출 — 2글자 이상 어절 단위(조사 등 짧은 어미는 자연히 걸러진다)
+// 예전 토큰 추출 — 어절을 그대로 쓴다(조사가 붙은 채로 남는다).
+// rankByKeyword(비교용 기준선)만 이걸 쓴다. 새 경로는 korean.js의 tokenize를 쓴다.
 function tokens(text) {
   return (text || '')
     .toLowerCase()
@@ -53,8 +54,9 @@ function tokens(text) {
     .filter((t) => t.length >= 2)
 }
 
-// 임베딩 폴백용 키워드 랭킹 — 질문 토큰이 문서에 포함될 때마다 토큰 길이만큼 가점.
-// (긴 토큰 매치일수록 우연 일치 확률이 낮으므로 가중치를 준다)
+// 예전 랭커 — 어절을 그대로 문자열 포함 검사한다.
+// 남겨 두는 이유는 하나뿐이다: 새 랭커가 실제로 나아졌는지 같은 골든셋으로 비교하기 위해서다
+// (src/lib/searchEval.js). 운영 경로는 아래 bm25Rank를 쓴다.
 export function rankByKeyword(question, docs = FAQ_DOCS) {
   const qTokens = [...new Set(tokens(question))]
   return docs
@@ -67,6 +69,72 @@ export function rankByKeyword(question, docs = FAQ_DOCS) {
       return { ...doc, score }
     })
     .sort((a, b) => b.score - a.score)
+}
+
+// BM25 — 문서 길이와 단어의 희소성을 반영한다.
+//
+// 왜 바꾸는가:
+// (1) 조사 때문에 못 찾던 것을 어간 처리로 잇는다 ('인터넷이' → '인터넷').
+// (2) 예전 점수는 "매치된 토큰 길이의 합"이라, 모든 문서에 흔한 말(요금·상담)이
+//     드문 말(로밍·소액결제)과 같은 무게였다. 흔한 말은 변별력이 없으므로 IDF로 낮춘다.
+// (3) 긴 문서가 우연히 더 많이 걸리는 편향을 문서 길이로 정규화한다.
+// 어절 매치가 하나도 없으면 문자 2-gram으로 물러난다 — 오탈자·띄어쓰기 차이를
+// 0점으로 두면 사용자는 "검색이 안 된다"고만 느낀다.
+export function bm25Rank(question, docs = FAQ_DOCS, { k1 = 1.2, b = 0.75 } = {}) {
+  const corpus = docs.map((d) => tokenize(`${d.title} ${d.title} ${d.body}`))
+  const avgdl = corpus.reduce((s, c) => s + c.length, 0) / Math.max(corpus.length, 1) || 1
+  const df = new Map()
+  for (const c of corpus) for (const t of new Set(c)) df.set(t, (df.get(t) || 0) + 1)
+
+  const qTokens = expandQuery(question)
+  const scored = docs.map((doc, i) => {
+    const terms = corpus[i]
+    const tf = new Map()
+    for (const t of terms) tf.set(t, (tf.get(t) || 0) + 1)
+    let score = 0
+    for (const t of qTokens) {
+      const f = tf.get(t) || 0
+      if (!f) continue
+      const n = df.get(t) || 0
+      const idf = Math.log(1 + (docs.length - n + 0.5) / (n + 0.5))
+      score += idf * ((f * (k1 + 1)) / (f + k1 * (1 - b + (b * terms.length) / avgdl)))
+    }
+    return { ...doc, score: Math.round(score * 1000) / 1000 }
+  })
+
+  if (scored.every((s) => s.score === 0)) {
+    const qGrams = new Set(bigrams(question))
+    if (qGrams.size > 0) {
+      for (const s of scored) {
+        const docGrams = new Set(bigrams(`${s.title} ${s.body}`))
+        let hit = 0
+        for (const g of qGrams) if (docGrams.has(g)) hit += 1
+        // 2-gram 점수는 어절 매치보다 항상 낮게 둔다 — 이건 '겨우 찾은 것'이라는 표시다
+        s.score = Math.round((hit / qGrams.size) * 0.5 * 1000) / 1000
+        s.weak = true
+      }
+    }
+  }
+
+  return scored.sort((a, b) => b.score - a.score)
+}
+
+// 검색이 자신 있는가 — 없으면 없다고 말해야 한다.
+//
+// 지금은 순위만 보고 1등 문서를 근거로 삼는다. 그래서 '점심 메뉴 추천해줘'처럼
+// 전혀 무관한 질의에도 요금제 규정을 자신 있게 답한다. 점수의 절대값과 2등과의 격차를
+// 함께 봐서, 근거가 없으면 LLM을 부르기 전에 물러난다(비용도 아낀다).
+export const RETRIEVAL_THRESHOLD = { strong: 1.2, weak: 0.35 }
+
+export function assessRetrieval(ranked) {
+  const list = ranked || []
+  const top = list[0]
+  if (!top || !top.score) return { level: 'none', reason: '질문과 겹치는 내용이 문서에 없습니다.' }
+  if (top.weak || top.score < RETRIEVAL_THRESHOLD.weak)
+    return { level: 'none', reason: '문서와 겹치는 부분이 너무 적어 근거로 쓸 수 없습니다.' }
+  if (top.score < RETRIEVAL_THRESHOLD.strong)
+    return { level: 'weak', reason: '관련 문서를 찾았지만 근거가 약합니다 — 답변을 그대로 신뢰하지 마세요.' }
+  return { level: 'strong', reason: null }
 }
 
 // 하이브리드 랭킹 — 벡터 순위와 키워드 순위를 RRF(Reciprocal Rank Fusion)로 융합한다.

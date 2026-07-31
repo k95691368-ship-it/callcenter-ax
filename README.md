@@ -98,7 +98,7 @@ LLM이 자유 생성하는 지점마다 규칙 기반 검증을 붙여, 프롬�
 npm install
 npm run dev        # 프론트만 (API는 데모 폴백)
 npm run dev:full   # 빌드 + wrangler pages dev (Functions 포함)
-npm test           # vitest 480개 (QA 점수·커스텀 규칙·CER 상한 DP·도메인 보정·RRF 융합·
+npm test           # vitest 518개 (QA 점수·커스텀 규칙·CER 상한 DP·도메인 보정·RRF 융합·
                    #              계약 검증·폴백 사다리·운영 지표·프라이버시 불변식)
 npm run lint       # oxlint
 npm run smoke      # 배포된 사이트 8종 점검 (AI 비용 없이: 라우팅·헬스·집계·정적 자산·
@@ -115,6 +115,6 @@ Claude Opus 5는 현재 라이브로 가동 중이다 (시크릿 등록 완료).
 ## 문서
 
 - [기획안.md](기획안.md) — 회사·공고 분석 → 기능 매핑 → 기술 선택 이유
-- [개선기획안.md](개선기획안.md) — 이틀간의 배포 후 개선 사이클 39회 기록
+- [개선기획안.md](개선기획안.md) — 이틀간의 배포 후 개선 사이클 40회 기록
 - [docs/기능정리.md](docs/기능정리.md) — 전체 구현 기능 상세 설명
 - [docs/녹음스크립트.md](docs/녹음스크립트.md) — 내 목소리로 STT 시연용 대본 5종
