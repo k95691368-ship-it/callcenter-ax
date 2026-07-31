@@ -2099,3 +2099,26 @@
     background: #4a3210;
   }
 }
+
+/* ── 개인정보 마스킹 안내 ── */
+.pii-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #cfe3d4;
+  border-left: 4px solid #2f9e5d;
+  border-radius: 10px;
+  background: #f3f9f5;
+}
+
+.pii-box strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.pii-box p {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink-600);
+}

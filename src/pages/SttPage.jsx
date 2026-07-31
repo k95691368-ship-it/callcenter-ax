@@ -6,6 +6,7 @@ import { WorkersAiNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 import { computeCer } from '../lib/cer.js'
 import { applyLexicon, buildCustomLexicon, MAX_CUSTOM_TERMS } from '../lib/domainLexicon.js'
+import { maskPii, maskNotice } from '../lib/piiMask.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { useRecorder } from '../lib/useRecorder.js'
 import {
@@ -166,6 +167,20 @@ export default function SttPage() {
     if (!refScript.trim() || corrected.applied.length === 0 || cerTooLong) return null
     return computeCer(refScript, corrected.text)
   }, [refScript, corrected, cerTooLong])
+
+  // 이 화면 밖으로 나가는 텍스트는 여기 한 곳에서 만든다:
+  //   원문 → 개인정보 마스킹 → 도메인 사전 보정
+  //
+  // 두 가지가 이 한 줄에 걸려 있다.
+  // (1) 콜센터 통화에는 본인확인이 반드시 들어가 주민번호·카드·연락처가 전사에 남는다.
+  //     가리지 않으면 분석 API·QA 평가·티켓·세션 저장소·클립보드로 그대로 퍼진다.
+  // (2) 예전에는 사전 보정본(corrected)이 미리보기에만 쓰였고, 정작 다음 단계로 넘어간 것은
+  //     보정 전 원문이었다 — 보정 효과를 측정만 하고 쓰지는 않은 셈이다.
+  const masked = useMemo(() => maskPii(transcript), [transcript])
+  const outbound = useMemo(
+    () => applyLexicon(masked.text, buildCustomLexicon(customTerms)).text,
+    [masked.text, customTerms]
+  )
 
   // 장시간 녹취 분할 전사 — 6MB·단발 호출 한계를 클라이언트 분할로 돌파한다
   const [chunkNote, setChunkNote] = useState('')
@@ -333,7 +348,8 @@ export default function SttPage() {
     setDiarizing(true)
     setError('')
     try {
-      const data = await postJson('/api/cc/diarize', { transcript: base })
+      // 화자 분리도 네트워크를 타는 경로다 — 개인정보를 가린 뒤에 보낸다
+      const data = await postJson('/api/cc/diarize', { transcript: maskPii(base).text })
       // 서버는 6000자까지만 처리한다. 잘린 뒷부분을 원문 그대로 이어 붙여야
       // 화자 분리 한 번에 긴 전사의 뒷부분이 소실되지 않는다.
       const tail = data.truncated ? base.slice(data.processed_chars) : ''
@@ -353,7 +369,8 @@ export default function SttPage() {
       setError('먼저 전사 결과나 텍스트를 준비해주세요.')
       return
     }
-    sessionStorage.setItem('cc-transcript', transcript)
+    // 원문이 아니라 "가리고 보정한" 텍스트를 넘긴다
+    sessionStorage.setItem('cc-transcript', outbound)
     navigate('/analyze')
   }
 
@@ -615,6 +632,18 @@ export default function SttPage() {
               <button type="button" className="btn-primary" onClick={sendToAnalyze}>
                 이 전사를 통화 분석으로 보내기 →
               </button>
+              {/* 무엇을 가렸는지 말해주지 않으면 마스킹이 도는지도, 과검출인지도 알 수 없다 */}
+              {masked.total > 0 && (
+                <div className="pii-box">
+                  <strong>🔒 개인정보 자동 마스킹 {masked.total}건</strong>
+                  <p>{maskNotice(masked)}</p>
+                  <p className="result-empty-sub">
+                    가려진 자리는 자릿수를 그대로 유지하므로(940101-1******) CER 측정과 사전 보정이
+                    같은 텍스트 위에서 계속 동작합니다. 음성을 글자로 바꾸는 단계는 서버가 처리하지만
+                    저장하지 않으며, 그 이후의 분석·평가·이관·저장은 모두 가려진 텍스트로 진행됩니다.
+                  </p>
+                </div>
+              )}
             </>
           )}
 

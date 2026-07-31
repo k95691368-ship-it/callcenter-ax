@@ -9,6 +9,7 @@ import { revealElement } from '../components/motion.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { saveMyCall } from '../lib/myCalls.js'
 import AnalysisLayers from '../components/AnalysisLayers.jsx'
+import { maskPii, maskNotice } from '../lib/piiMask.js'
 import { splitCalls, MAX_BATCH_CALLS, MAX_CALL_CHARS } from '../lib/batchSplit.js'
 
 // 서버가 조용히 잘라내는 상한 (functions/api/cc/analyze.js의 MAX_CHARS)
@@ -67,6 +68,8 @@ export default function AnalyzePage() {
   // 복사 실패를 좌측 폼의 setError로 보내면 화면 반대편에 떠서 버튼을 누른 사람이
   // 알아채지 못한다. 버튼 옆에 붙는 별도 상태로 분리한다.
   const [copyError, setCopyError] = useState('')
+  // 이번 요청에서 무엇을 가렸는지 (가린 게 없으면 아무것도 표시하지 않는다)
+  const [masked, setMasked] = useState(null)
   const copyTimerRef = useRef(null)
   useEffect(() => () => clearTimeout(copyTimerRef.current), [])
 
@@ -102,7 +105,12 @@ export default function AnalyzePage() {
     setLoading(true)
     setError('')
     try {
-      const data = await postJson('/api/cc/analyze', { transcript: text })
+      // 붙여넣기 경로에서도 개인정보를 가린 뒤 보낸다.
+      // 녹취 화면에서 넘어온 텍스트는 이미 가려져 있지만, 여기에 직접 붙여넣는 사람도 있다 —
+      // 마스킹이 한쪽 경로에만 있으면 없는 것과 크게 다르지 않다.
+      const safe = maskPii(text)
+      setMasked(safe)
+      const data = await postJson('/api/cc/analyze', { transcript: safe.text })
       setResult(data)
       // 분석 결과를 브라우저에 누적 → VOC 대시보드에 합산 (서버 저장 없음)
       // churn·route까지 남겨야 VOC 대장의 '이탈위험·위험등급·담당' 열이 채워진다.
@@ -172,7 +180,9 @@ export default function AnalyzePage() {
     setBatchError('')
     setBatchSaved(false)
     try {
-      const data = await postJson('/api/cc/analyze-batch', { transcripts: parts })
+      // 일괄 경로도 같다 — 건별로 가린 뒤 보낸다
+      const safeParts = parts.map((p) => maskPii(p).text)
+      const data = await postJson('/api/cc/analyze-batch', { transcripts: safeParts })
       setBatchResult({ ...data, inputs: parts })
     } catch (err) {
       setBatchError(err.message)
@@ -248,6 +258,7 @@ export default function AnalyzePage() {
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />
+              {masked?.total > 0 && <ResultNotice text={`🔒 ${maskNotice(masked)}`} />}
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <UsageNote usage={result.usage} />

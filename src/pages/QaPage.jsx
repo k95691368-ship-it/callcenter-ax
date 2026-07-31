@@ -10,6 +10,7 @@ import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { MAX_RULE_SCORE, MAX_CUSTOM_MENTIONS } from '../lib/qaRules.js'
 import { usePersistentState } from '../lib/persist.js'
 import { loadQaHistory, saveQaResult, clearQaHistory, summarizeQaHistory } from '../lib/qaHistory.js'
+import { maskPii, maskNotice } from '../lib/piiMask.js'
 
 // 서버가 조용히 잘라내는 상한 (functions/api/cc/qa.js의 MAX_CHARS)
 const MAX_TRANSCRIPT_CHARS = 8000
@@ -60,6 +61,8 @@ export default function QaPage() {
   // 개인정보를 받지 않으면서 "누가 반복해서 놓치는가"를 셀 수 있는 최소한의 축이다.
   const [agentLabel, setAgentLabel] = usePersistentState('cc-qa-agent-label', '')
   const [history, setHistory] = useState(loadQaHistory)
+  // 이번 평가에서 가린 개인정보 (없으면 표시하지 않는다)
+  const [masked, setMasked] = useState(null)
   const coaching = useMemo(() => summarizeQaHistory(history), [history])
   const resultRef = useRef(null)
 
@@ -122,8 +125,12 @@ export default function QaPage() {
     setError('')
     try {
       const custom = customPayload()
+      // 평가도 전사 원문을 서버로 보내는 경로다 — 개인정보를 가린 뒤 보낸다.
+      // 마스킹은 자릿수를 보존하므로 필수 멘트·금지 표현 검사에는 영향이 없다.
+      const safe = maskPii(text)
+      setMasked(safe)
       const data = await postJson('/api/cc/qa', {
-        transcript: text,
+        transcript: safe.text,
         ...(custom.length ? { custom_mentions: custom } : {}),
       })
       setResult(data)
@@ -219,6 +226,7 @@ export default function QaPage() {
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />
+              {masked?.total > 0 && <ResultNotice text={`🔒 ${maskNotice(masked)}`} />}
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <UsageNote usage={result.usage} />
