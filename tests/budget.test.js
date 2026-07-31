@@ -6,27 +6,26 @@ import {
   budgetNotice,
   DAILY_BUDGET_USD,
   RESERVE_PER_CALL_USD,
-  PAID_MODES,
+  isPaidMode,
 } from '../functions/_lib/budget.js'
 
 // ai_calls 조회를 흉내내는 D1 스텁. 실행된 SQL도 함께 붙잡아 "무엇을 세는지"를 확인한다.
-function dbWith(row, { throws = false } = {}) {
-  const seen = { sql: '', binds: [] }
+//
+// 집계는 mode별 행으로 돌아온다. SQL에 유료 mode 목록을 박아 두면 새 mode가 생길 때마다
+// 조용히 빠지므로(실제로 live-hybrid가 그렇게 빠져 검색의 유료 호출이 예산에서 통째로
+// 누락됐다), 판정은 JS의 isPaidMode가 한다.
+function dbWith(rows, { throws = false } = {}) {
+  const seen = { sql: '' }
+  const list = Array.isArray(rows) ? rows : rows ? [{ mode: 'live', ...rows }] : []
   return {
     seen,
     prepare: (sql) => {
       seen.sql = sql
-      return {
-        bind: (...args) => {
-          seen.binds = args
-          return {
-            first: async () => {
-              if (throws) throw new Error('D1 down')
-              return row
-            },
-          }
-        },
+      const run = async () => {
+        if (throws) throw new Error('D1 down')
+        return { results: list }
       }
+      return { bind: () => ({ all: run, first: async () => (await run()).results[0] }), all: run, first: async () => (await run()).results[0] }
     },
   }
 }
@@ -63,13 +62,32 @@ describe('일일 예산 — 회수가 아니라 금액으로 막는다', () => {
     expect(many.reserve).toBeGreaterThan(one.reserve)
   })
 
-  it('유료(Claude) 호출만 센다 — 다른 회사 청구서를 여기에 더하지 않는다', async () => {
-    const db = dbWith({ input_tokens: 0, output_tokens: 0 })
-    await checkDailyBudget({ DB: db })
-    // Workers AI(live-oss)·Whisper(live-base)는 사용자의 Anthropic 크래딧이 아니다
-    expect(db.seen.binds).toEqual(PAID_MODES)
-    expect(PAID_MODES).toEqual(['live'])
-    expect(db.seen.sql).toMatch(/mode IN/)
+  it('무료 엔진만 제외하고, Claude가 실제로 청구한 것은 전부 센다', async () => {
+    // Workers AI(live-oss)·Whisper(live-turbo/base)는 사용자의 Anthropic 크래딧이 아니다.
+    expect(isPaidMode('live-oss')).toBe(false)
+    expect(isPaidMode('live-base')).toBe(false)
+    expect(isPaidMode('live-turbo')).toBe(false)
+    expect(isPaidMode(undefined)).toBe(false)
+
+    expect(isPaidMode('live')).toBe(true)
+    // 검색은 live-hybrid·live-keyword로 남긴다. 유료 mode를 목록으로 박아 두던 시절
+    // 이 둘이 통째로 빠져 검색의 Claude 지출이 예산에 잡히지 않았다.
+    expect(isPaidMode('live-hybrid')).toBe(true)
+    expect(isPaidMode('live-keyword')).toBe(true)
+    // 강등·폴백도 센다 — LLM이 답한 뒤 근거율 게이트가 그 답을 버려도 토큰은 이미 청구됐다.
+    // 버렸다는 이유로 빼면 예산이 실제 지출보다 낮게 잡힌다.
+    expect(isPaidMode('guarded-hybrid')).toBe(true)
+    expect(isPaidMode('fallback-refusal')).toBe(true)
+  })
+
+  it('무료 엔진 호출은 금액에 더하지 않는다', async () => {
+    const db = dbWith([
+      { mode: 'live', input_tokens: 10_000, output_tokens: 2_000 },
+      { mode: 'live-oss', input_tokens: 900_000, output_tokens: 900_000 },
+    ])
+    const b = await checkDailyBudget({ DB: db })
+    expect(b.spent).toBeCloseTo(0.1)
+    expect(b.ok).toBe(true)
   })
 
   it('집계 창이 자정이 아니라 롤링 24시간이다', async () => {

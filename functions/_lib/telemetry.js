@@ -11,7 +11,17 @@ const PRUNE_CHANCE = 0.01
 // 한 요청에 한 줄만 남기기 위한 예약대. 키가 요청 컨텍스트이므로 요청이 끝나면 사라진다.
 const PENDING = new WeakMap()
 
+// 캐시 토큰까지 기록하는 문장. 캐시 읽기·생성은 input_tokens에 포함되지 않고 단가도
+// 다르므로(읽기 10%, 생성 125%), 빼놓으면 비용 상한이 실제 지출보다 적게 계산한다.
 const INSERT_SQL =
+  `INSERT INTO ai_calls (endpoint, mode, latency_ms, input_tokens, output_tokens, findings_count,
+                         cache_read_tokens, cache_write_tokens)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+
+// 마이그레이션 0004가 아직 적용되지 않은 배포에서도 기록 자체는 계속돼야 한다.
+// 컬럼이 없으면 INSERT가 실패하고, logCall은 오류를 삼키므로 지표가 통째로 사라진다 —
+// 그건 "비용을 못 본다"보다 나쁘다. 옛 문장으로 한 번 더 시도한다.
+const LEGACY_INSERT_SQL =
   'INSERT INTO ai_calls (endpoint, mode, latency_ms, input_tokens, output_tokens, findings_count) VALUES (?, ?, ?, ?, ?, ?)'
 
 // 오래된 원본을 누적 카운터로 접어 넣는다. 같은 (endpoint, mode)가 이미 있으면 더한다.
@@ -99,17 +109,14 @@ function mergeRecord(prev, next) {
 }
 
 function writeCall(env, r) {
+  const latency = r.startedAt ? Date.now() - r.startedAt : null
+  const core = [r.endpoint, r.mode, latency, r.usage?.input_tokens ?? null, r.usage?.output_tokens ?? null, r.findingsCount ?? null]
   const insert = env.DB.prepare(INSERT_SQL)
-    .bind(
-      r.endpoint,
-      r.mode,
-      r.startedAt ? Date.now() - r.startedAt : null,
-      r.usage?.input_tokens ?? null,
-      r.usage?.output_tokens ?? null,
-      r.findingsCount ?? null
-    )
+    .bind(...core, r.usage?.cache_read_input_tokens ?? null, r.usage?.cache_creation_input_tokens ?? null)
     .run()
-    .catch(() => {})
+    // 캐시 컬럼이 없는 배포(마이그레이션 0004 미적용)에서는 옛 문장으로 남긴다.
+    // 캐시 토큰은 잃지만 호출 기록 자체를 잃는 것보다 낫다.
+    .catch(() => env.DB.prepare(LEGACY_INSERT_SQL).bind(...core).run().catch(() => {}))
   // 정리는 기록이 끝난 뒤에 붙인다 — 청소가 이번 요청의 기록을 지연시킬 이유가 없다.
   return insert.then(() => maybePrune(env))
 }

@@ -153,7 +153,7 @@ export async function onRequestPost(context) {
     })
     return json({ demo: false, usage: r.usage, llm_model: r.model, calls: withTriage(calls, transcripts) })
   } catch (err) {
-    logCall(context, { endpoint: 'analyze-batch', mode: failureMode(err), startedAt })
+    logCall(context, { endpoint: 'analyze-batch', mode: failureMode(err), startedAt, usage: err?.usage })
     return json({ ...demoAll(), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
   }
 }

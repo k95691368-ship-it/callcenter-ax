@@ -203,7 +203,7 @@ export async function onRequestPost(context) {
       ...withDeterministicLayers(result, transcript, churn),
     })
   } catch (err) {
-    logCall(context, { endpoint: 'analyze', mode: failureMode(err), startedAt })
+    logCall(context, { endpoint: 'analyze', mode: failureMode(err), startedAt, usage: err?.usage })
     return json({
       ...withDeterministicLayers(demoAnalyze(transcript), transcript, estimateChurn(transcript)),
       notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})`,

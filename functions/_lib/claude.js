@@ -201,8 +201,18 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = DEFA
   // 이 앱은 소송·고소·언론 제보 같은 강성 민원 전사를 다뤄 현실적인 경로인데, 전용
   // 분기가 없던 탓에 뒤따르는 tool_use 탐색이 실패해 "결과를 찾을 수 없습니다"라는
   // 무관한 오류로 둔갑했다. content보다 stop_reason을 먼저 본다.
+  // 실패해도 토큰은 이미 나갔다 — 특히 절단(max_tokens)은 상한까지 생성한 뒤 실패하므로
+  // 가장 비싼 실패다. 그런데 지금까지 실패 경로는 usage 없이 기록돼 예산 계산에서 0원으로
+  // 취급됐다. 비용 가드가 가장 비싼 호출을 못 보는 셈이라, 오류에 usage를 실어 보낸다.
+  const usage = readUsage(data)
+  const failWithUsage = (message, code) => {
+    const err = fail(message, code)
+    err.usage = usage
+    return err
+  }
+
   if (data.stop_reason === 'refusal') {
-    const err = fail(
+    const err = failWithUsage(
       'AI 안전 정책에 따라 이 내용은 자동 분석이 거절되었습니다. 민감한 표현을 줄여 다시 시도해주세요.',
       'refusal'
     )
@@ -211,25 +221,31 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = DEFA
   }
   // max_tokens로 잘린 tool 입력은 불완전한 JSON일 수 있으므로 toolUse 존재 여부와 무관하게 거부한다.
   if (data.stop_reason === 'max_tokens') {
-    throw fail('AI 응답이 너무 길어 중단되었습니다. 입력을 줄여 다시 시도해주세요.', 'max_tokens')
+    throw failWithUsage('AI 응답이 너무 길어 중단되었습니다. 입력을 줄여 다시 시도해주세요.', 'max_tokens')
   }
 
   const toolUse = Array.isArray(data.content)
     ? data.content.find((block) => block.type === 'tool_use')
     : null
   if (!toolUse || typeof toolUse.input !== 'object' || toolUse.input === null) {
-    throw fail('AI 응답에서 결과를 찾을 수 없습니다. 잠시 후 다시 시도해주세요.', 'no_tool_use')
+    throw failWithUsage('AI 응답에서 결과를 찾을 수 없습니다. 잠시 후 다시 시도해주세요.', 'no_tool_use')
   }
-  const usage = data.usage
-    ? {
-        input_tokens: data.usage.input_tokens,
-        output_tokens: data.usage.output_tokens,
-        ...(data.usage.cache_read_input_tokens
-          ? { cache_read_input_tokens: data.usage.cache_read_input_tokens }
-          : {}),
-      }
-    : null
   return { input: toolUse.input, usage }
+}
+
+// 과금에 쓰이는 토큰을 빠짐없이 가져온다.
+// 캐시 읽기·생성은 input_tokens에 포함되지 않고 따로 보고되며 단가도 다르다
+// (읽기는 입력의 10%, 생성은 125%). 빠뜨리면 실제 지출보다 적게 계산된다 —
+// 이 프로젝트는 프롬프트 캐싱을 쓰므로 입력의 상당 부분이 캐시 읽기다.
+function readUsage(data) {
+  const u = data?.usage
+  if (!u) return null
+  return {
+    input_tokens: u.input_tokens ?? 0,
+    output_tokens: u.output_tokens ?? 0,
+    ...(u.cache_read_input_tokens ? { cache_read_input_tokens: u.cache_read_input_tokens } : {}),
+    ...(u.cache_creation_input_tokens ? { cache_creation_input_tokens: u.cache_creation_input_tokens } : {}),
+  }
 }
 
 // 문자열로 옮겨도 뜻이 남는 값(문자열·숫자·불리언)만 문자열화한다.

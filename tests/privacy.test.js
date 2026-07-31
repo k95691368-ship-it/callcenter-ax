@@ -68,7 +68,7 @@ describe('logCall (텔레메트리)', () => {
     return { context, seen }
   }
 
-  const ALLOWED_COLUMNS = ['endpoint', 'mode', 'latency_ms', 'input_tokens', 'output_tokens', 'findings_count']
+  const ALLOWED_COLUMNS = ['endpoint', 'mode', 'latency_ms', 'input_tokens', 'output_tokens', 'findings_count', 'cache_read_tokens', 'cache_write_tokens']
 
   it('허용된 컬럼만 기록한다 (원문·IP 컬럼이 추가되면 실패한다)', async () => {
     const { context, seen } = capture()

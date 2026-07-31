@@ -73,12 +73,13 @@ describe('Claude 일일 예산 칸막이 (금액 기준)', () => {
   // 상한 기준이 "회수"에서 "금액"으로 바뀌었다. 호출마다 비용이 몇 배씩 다르므로
   // 회수 상한으로는 "N회 안에서는 안전하다"가 성립하지 않기 때문이다.
   // 아래 스텁은 최근 24시간 토큰 합계를 돌려주는 ai_calls 조회를 흉내낸다.
-  const dbWithSpend = (input, output) => ({
-    prepare: () => ({
-      bind: () => ({ first: async () => ({ input_tokens: input, output_tokens: output }) }),
-      first: async () => ({ input_tokens: input, output_tokens: output }),
-    }),
-  })
+  // 예산 집계는 mode별 행을 all()로 받는다 (유료 판정은 JS의 isPaidMode가 한다)
+  const dbWithSpend = (input, output) => {
+    const rows = { results: [{ mode: 'live', input_tokens: input, output_tokens: output }] }
+    return {
+      prepare: () => ({ bind: () => ({ all: async () => rows }), all: async () => rows }),
+    }
+  }
   // 입력 70만 + 출력 20만 토큰 ≈ $8.5 — 상한 $3을 넘는다
   const spentOver = dbWithSpend(700_000, 200_000)
   const spentLittle = dbWithSpend(1_000, 500)
@@ -110,7 +111,8 @@ describe('Claude 일일 예산 칸막이 (금액 기준)', () => {
   it('D1 조회가 실패하면 유료 호출을 건너뛴다 (상한이 사라져 무제한 과금이 되는 쪽이 더 나쁘다)', async () => {
     const brokenDb = {
       prepare: () => ({
-        bind: () => ({ first: async () => { throw new Error('D1 down') } }),
+        bind: () => ({ all: async () => { throw new Error('D1 down') } }),
+        all: async () => { throw new Error('D1 down') },
       }),
     }
     const fetchSpy = vi.fn()

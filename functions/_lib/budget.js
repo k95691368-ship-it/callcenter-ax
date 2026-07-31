@@ -16,6 +16,10 @@
 // claude-opus-5 단가 (USD / 토큰)
 export const INPUT_PRICE = 5 / 1_000_000
 export const OUTPUT_PRICE = 25 / 1_000_000
+// 캐시 읽기는 입력의 10%, 캐시 생성은 125%. 이 둘은 input_tokens에 포함되지 않고
+// 따로 보고되므로, 더하지 않으면 캐싱을 쓸수록 계산이 실제보다 적어진다.
+export const CACHE_READ_PRICE = INPUT_PRICE * 0.1
+export const CACHE_WRITE_PRICE = INPUT_PRICE * 1.25
 
 // 하루 상한. 운영자가 조정하는 값이다.
 export const DAILY_BUDGET_USD = 3
@@ -26,11 +30,32 @@ export const DAILY_BUDGET_USD = 3
 // 너무 크게 잡으면 여유가 있는데도 미리 막힌다.
 export const RESERVE_PER_CALL_USD = 0.06
 
-// 유료(사용자 크래딧) 호출로 간주하는 mode
-export const PAID_MODES = ['live']
+// 유료(사용자 크래딧) 호출인가.
+//
+// 세 번 빠졌다. 예전에는 mode === 'live' 목록으로 판정했는데,
+//   · 검색 성공은 `live-hybrid`·`live-keyword`로 기록된다 (Claude가 답한 유료 호출)
+//   · 보존 게이트가 막은 화자 분리는 `guarded`로 기록된다 (Claude 호출은 이미 끝났다)
+//   · 절단·거절 실패는 `fallback-*`로 기록된다 (상한까지 생성한 뒤 실패 — 가장 비싸다)
+// 셋 다 돈이 나간 호출인데 목록에 없어 예산에서 빠졌다.
+//
+// 그래서 "어떤 mode가 유료인가"를 세는 대신 **무료인 것만 제외**한다.
+// 토큰을 기록하는 유일한 경로가 Claude이기 때문이다 — 오픈소스 층은 usage를 null로
+// 돌려주고(ladder), Whisper도 usage를 남기지 않는다. 그래도 나중에 누군가 오픈소스
+// 토큰을 기록하기 시작할 때를 대비해 무료 엔진 표식은 명시적으로 배제해 둔다.
+const FREE_ENGINE_RE = /(oss|turbo|base)/
 
-export function costOf(inputTokens, outputTokens) {
-  return (inputTokens || 0) * INPUT_PRICE + (outputTokens || 0) * OUTPUT_PRICE
+export function isPaidMode(mode) {
+  if (typeof mode !== 'string' || !mode) return false
+  return !FREE_ENGINE_RE.test(mode)
+}
+
+export function costOf(inputTokens, outputTokens, cacheReadTokens = 0, cacheWriteTokens = 0) {
+  return (
+    (inputTokens || 0) * INPUT_PRICE +
+    (outputTokens || 0) * OUTPUT_PRICE +
+    (cacheReadTokens || 0) * CACHE_READ_PRICE +
+    (cacheWriteTokens || 0) * CACHE_WRITE_PRICE
+  )
 }
 
 // 최근 24시간 Claude 호출로 쓴 금액을 집계한다.
@@ -52,20 +77,43 @@ export async function checkDailyBudget(env, limitUsd = DAILY_BUDGET_USD, { calls
   const reserve = Math.max(1, calls) * RESERVE_PER_CALL_USD
   if (!env?.DB) return { ok: true, spent: 0, limit: limitUsd, reserve, available: false, error: false }
   try {
-    const placeholders = PAID_MODES.map(() => '?').join(',')
-    const row = await env.DB.prepare(
-      `SELECT SUM(COALESCE(input_tokens, 0)) AS input_tokens,
-              SUM(COALESCE(output_tokens, 0)) AS output_tokens
-         FROM ai_calls
-        WHERE created_at >= datetime('now', '-1 day')
-          AND mode IN (${placeholders})`
-    )
-      .bind(...PAID_MODES)
-      .first()
-    const spent = costOf(row?.input_tokens, row?.output_tokens)
+    // mode별로 받아 JS에서 유료 여부를 가른다. SQL에 목록을 박으면 새 mode가 생길 때마다
+    // 조용히 빠지므로(live-hybrid가 그렇게 빠졌다), 판정 규칙을 한 곳에 둔다.
+    const { results } = await queryModeTotals(env)
+    let spent = 0
+    for (const r of results || []) {
+      if (!isPaidMode(r.mode)) continue
+      spent += costOf(r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens)
+    }
     return { ok: spent + reserve <= limitUsd, spent, limit: limitUsd, reserve, available: true, error: false }
   } catch {
     return { ok: failOpen, spent: 0, limit: limitUsd, reserve, available: false, error: true }
+  }
+}
+
+// 캐시 컬럼이 없는 배포(마이그레이션 0004 미적용)에서도 동작해야 한다.
+// 그 경우 캐시분은 0으로 잡히므로 계산이 실제보다 적어지지만, 예산 검사가 통째로
+// 실패해 fail-open으로 흘러가는 것보다는 낫다.
+async function queryModeTotals(env) {
+  const withCache = `SELECT mode,
+                            SUM(COALESCE(input_tokens, 0)) AS input_tokens,
+                            SUM(COALESCE(output_tokens, 0)) AS output_tokens,
+                            SUM(COALESCE(cache_read_tokens, 0)) AS cache_read_tokens,
+                            SUM(COALESCE(cache_write_tokens, 0)) AS cache_write_tokens
+                       FROM ai_calls
+                      WHERE created_at >= datetime('now', '-1 day')
+                      GROUP BY mode`
+  const legacy = `SELECT mode,
+                         SUM(COALESCE(input_tokens, 0)) AS input_tokens,
+                         SUM(COALESCE(output_tokens, 0)) AS output_tokens
+                    FROM ai_calls
+                   WHERE created_at >= datetime('now', '-1 day')
+                   GROUP BY mode`
+  try {
+    return await env.DB.prepare(withCache).all()
+  } catch (err) {
+    if (!/no such column/i.test(String(err?.message ?? err))) throw err
+    return await env.DB.prepare(legacy).all()
   }
 }
 

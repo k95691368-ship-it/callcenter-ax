@@ -102,7 +102,7 @@ describe('logCall — 한 요청에 한 줄', () => {
     logCall(ctx, { endpoint: 'search', mode: 'live-vector', startedAt: Date.now() })
     await settle(ctx)
     const columns = inserts(db)[0].sql.match(/\(([^)]+)\)\s*VALUES/i)[1].split(',').map((c) => c.trim())
-    expect(columns).toEqual(['endpoint', 'mode', 'latency_ms', 'input_tokens', 'output_tokens', 'findings_count'])
+    expect(columns).toEqual(['endpoint', 'mode', 'latency_ms', 'input_tokens', 'output_tokens', 'findings_count', 'cache_read_tokens', 'cache_write_tokens'])
   })
 
   it('DB가 없으면 아무 일도 하지 않는다', () => {

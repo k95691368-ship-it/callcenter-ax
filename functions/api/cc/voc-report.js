@@ -142,7 +142,7 @@ export async function onRequestPost(context) {
         : { notice: `리포트에 집계에 없는 수치(${numCheck.unknown.join(', ')})가 포함되어 있습니다 — 집계 원본과 대조해 확인해주세요.` }),
     })
   } catch (err) {
-    logCall(context, { endpoint: 'voc-report', mode: failureMode(err), startedAt })
+    logCall(context, { endpoint: 'voc-report', mode: failureMode(err), startedAt, usage: err?.usage })
     return json({ ...demoReport(stats), notice: `일시적인 AI 혼잡으로 예시 리포트를 표시합니다. (${err.message})` })
   }
 }

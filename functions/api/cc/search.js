@@ -15,6 +15,7 @@ import {
   UNTRUSTED_INPUT_RULES,
 } from '../../../src/lib/faqDocs.js'
 import { groundedness } from '../../../src/lib/grounding.js'
+import { numericSupport, numericNotice } from '../../../src/lib/numericSupport.js'
 
 // Workers AI 다국어 임베딩 모델 (한국어 지원, 오픈소스)
 const EMBED_MODEL = '@cf/baai/bge-m3'
@@ -330,13 +331,28 @@ export async function onRequestPost(context) {
     const docsText = results.map((x) => `${x.title} ${x.body}`).join(' ')
     const grounding = groundedness(result.answer, docsText)
     const verdict = groundingVerdict(grounding, result.answer)
-    // 강등: 근거가 거의 없는 답변은 표시하지 않고 문서 발췌로 대체한다. 화자 분리의
-    // 원문 보존 게이트와 같은 처리(demo/guarded + notice)로 프론트 계약을 맞춘다.
-    if (verdict === 'reject') {
+
+    // 수치 게이트 — 근거율이 못 잡는 종류의 거짓을 잡는다.
+    //
+    // groundedness는 문자 2-gram 겹침이라 "월 4만 4천 원"과 "월 9만 9천 원"이 거의 같은
+    // 점수를 받는다(실측: 환각 금액이 0.71로 통과선을 넘었다). 그런데 콜센터에서 틀리면
+    // 가장 비싼 것이 바로 그 숫자다 — 위약금 액수를 잘못 안내하면 그 자체로 분쟁이 된다.
+    // 질문에 있던 숫자는 근거로 인정한다(고객이 말한 금액을 되받는 것은 환각이 아니다).
+    const numeric = numericSupport(result.answer, docsText, question)
+
+    // 강등: 근거가 거의 없거나 확인되지 않는 금액·기간이 섞인 답변은 표시하지 않고
+    // 문서 발췌로 대체한다. 화자 분리의 원문 보존 게이트와 같은 처리(demo/guarded + notice).
+    if (verdict === 'reject' || !numeric.ok) {
       // 근거가 없다고 판단해 LLM 답변을 버린 자리다. 여기에 확신형 문구를 쓰면
       // 환각을 막으려던 게이트가 스스로 확신형 오답을 만든다.
       const t = templateAnswer(results, { forceWeak: true })
-      logCall(context, { endpoint: 'search', mode: `guarded-${mode}`, startedAt, usage: r.usage })
+      const byNumeric = !numeric.ok
+      logCall(context, {
+        endpoint: 'search',
+        mode: byNumeric ? `guarded-numeric-${mode}` : `guarded-${mode}`,
+        startedAt,
+        usage: r.usage,
+      })
       return json({
         demo: true,
         mode,
@@ -346,12 +362,16 @@ export async function onRequestPost(context) {
         ...t,
         guarded: true,
         rejected_grounding: grounding,
+        // 어느 숫자가 문제였는지 남긴다 — "수치 검증 실패"만 말하면 사람이 확인할 수 없다
+        ...(byNumeric ? { unsupported_numbers: numeric.unsupported.map((c) => c.text) } : {}),
         // 화면의 근거율 칩은 "지금 보이는 문장"의 수치여야 한다. 버린 답변의 수치를 그대로
         // 실으면 발췌문 옆에 엉뚱한 낮은 비율이 붙는다.
         grounding: groundedness(t.answer, docsText),
-        notice: `생성된 답변의 문서 근거율이 ${Math.round(grounding * 100)}%로 기준(${Math.round(
-          GROUNDING_FLOOR * 100
-        )}%)에 미달해, 답변 대신 근거 문서 발췌를 표시합니다 (근거율 게이트).`,
+        notice: byNumeric
+          ? `${numericNotice(numeric)} 답변 대신 근거 문서 발췌를 표시합니다 (수치 근거 게이트).`
+          : `생성된 답변의 문서 근거율이 ${Math.round(grounding * 100)}%로 기준(${Math.round(
+              GROUNDING_FLOOR * 100
+            )}%)에 미달해, 답변 대신 근거 문서 발췌를 표시합니다 (근거율 게이트).`,
       })
     }
     logCall(context, {
@@ -377,7 +397,7 @@ export async function onRequestPost(context) {
     })
   } catch (err) {
     const t = templateAnswer(results)
-    logCall(context, { endpoint: 'search', mode: failureMode(err), startedAt })
+    logCall(context, { endpoint: 'search', mode: failureMode(err), startedAt, usage: err?.usage })
     return json({
       demo: true,
       mode,

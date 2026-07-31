@@ -115,7 +115,7 @@ export async function onRequestPost(context) {
         : undefined,
     })
   } catch (err) {
-    logCall(context, { endpoint: 'diarize', mode: failureMode(err), startedAt })
+    logCall(context, { endpoint: 'diarize', mode: failureMode(err), startedAt, usage: err?.usage })
     return json({ demo: true, formatted: transcript, ...truncation, notice: `일시적인 AI 혼잡으로 원문을 유지합니다. (${err.message})` })
   }
 }

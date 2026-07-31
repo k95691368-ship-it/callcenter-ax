@@ -172,7 +172,7 @@ export async function onRequestPost(context) {
       docs: publicDocs,
     })
   } catch (err) {
-    logCall(context, { endpoint: 'assist', mode: failureMode(err), startedAt })
+    logCall(context, { endpoint: 'assist', mode: failureMode(err), startedAt, usage: err?.usage })
     return json({
       ...demoAssist(docs, dialogue),
       docs: publicDocs,

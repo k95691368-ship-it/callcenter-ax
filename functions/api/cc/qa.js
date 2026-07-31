@@ -240,7 +240,7 @@ export async function onRequestPost(context) {
     })
   } catch (err) {
     const demo = demoLlmReview(mentions, findings)
-    logCall(context, { endpoint: 'qa', mode: failureMode(err), startedAt, findingsCount: findings.length })
+    logCall(context, { endpoint: 'qa', mode: failureMode(err), startedAt, usage: err?.usage, findingsCount: findings.length })
     return respond(null, {
       demo: true,
       comments: demo.comments,
