@@ -8,7 +8,7 @@ import { onRequestGet } from '../functions/api/cc/health.js'
 // spend: 최근 24시간 유료(Claude) 토큰 합계 — 유료 상한이 회수에서 금액으로 바뀌면서
 // "소진 상태"를 흉내내려면 버킷 카운트가 아니라 토큰 합계를 돌려줘야 한다.
 const db = (counts = {}, spend = null) => ({
-  prepare: (sql = '') => {
+  prepare: () => {
     const rows = { results: [{ mode: 'live', ...(spend || { input_tokens: 0, output_tokens: 0 }) }] }
     return {
       bind: (bucket) => ({
