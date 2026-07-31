@@ -130,34 +130,56 @@ export const REPEAT_PATTERNS = [
 
 const speechOf = (call) => `${call?.title || ''}\n${customerSpeech(call?.transcript)}`
 
+// 같은 통화의 판정 결과를 기억한다.
+//
+// 한 번의 화면 갱신에서 이 계산이 통화당 네다섯 번 돈다 — 원인 집계, 자가 점검,
+// 원장 CSV, 기간 비교(현재·이전 두 구간)가 각자 부른다. 결과는 통화 내용에만 달려 있고
+// 통화 객체는 렌더 안에서 바뀌지 않으므로, 객체 신원으로 기억하면 두 번째부터는 공짜다.
+// WeakMap이라 통화가 사라지면 캐시도 함께 사라진다.
+//
+// 전제: 같은 객체의 title·transcript가 도중에 바뀌지 않는다. 이 앱에서 통화는 만들어진
+// 뒤 바뀌지 않고, 값을 얹을 때는 새 객체를 만든다(VocPage의 파생 useMemo가 그렇게 한다).
+const themeCache = new WeakMap()
+const repeatCache = new WeakMap()
+
+function memoize(cache, call, compute) {
+  if (!call || typeof call !== 'object') return compute(call)
+  if (cache.has(call)) return cache.get(call)
+  const value = compute(call)
+  cache.set(call, value)
+  return value
+}
+
 // 통화 하나에서 원인을 뽑는다. 근거 문장을 함께 돌려준다 — 왜 그렇게 분류됐는지
 // 보여주지 못하면 담당자는 이 태깅을 믿지 않는다.
 export function extractThemes(call) {
-  const text = speechOf(call)
-  const out = []
-  for (const theme of THEMES) {
-    const evidence = []
-    for (const re of theme.patterns) {
-      const m = text.match(re)
-      if (m) {
-        const line = text
-          .split('\n')
-          .find((l) => re.test(l))
-        if (line && !evidence.includes(line.trim())) evidence.push(line.trim())
+  return memoize(themeCache, call, (c) => {
+    const text = speechOf(c)
+    const out = []
+    for (const theme of THEMES) {
+      const evidence = []
+      for (const re of theme.patterns) {
+        const m = text.match(re)
+        if (m) {
+          const line = text.split('\n').find((l) => re.test(l))
+          if (line && !evidence.includes(line.trim())) evidence.push(line.trim())
+        }
       }
+      if (evidence.length > 0)
+        out.push({ id: theme.id, label: theme.label, team: theme.team, dept: teamName(theme.team), evidence })
     }
-    if (evidence.length > 0)
-      out.push({ id: theme.id, label: theme.label, team: theme.team, dept: teamName(theme.team), evidence })
-  }
-  return out
+    return out
+  })
 }
 
 export function isRepeatCall(call) {
-  const text = speechOf(call)
-  const hit = REPEAT_PATTERNS.find((re) => re.test(text))
-  if (!hit) return null
-  const line = text.split('\n').find((l) => hit.test(l))
-  return { evidence: (line || '').trim() }
+  return memoize(repeatCache, call, (c) => {
+    const text = speechOf(c)
+    const hit = REPEAT_PATTERNS.find((re) => re.test(text))
+    if (!hit) return null
+    const line = text.split('\n').find((l) => hit.test(l))
+    return { evidence: (line || '').trim() }
+  })
 }
 
 // 전체 집계 — 원인별 건수, 부서별 묶음, 재문의, 미분류
