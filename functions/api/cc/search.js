@@ -360,7 +360,10 @@ export async function onRequestPost(context) {
       cited_ids: [],
       grounding: null,
       notice: `${confidence.reason} 근거가 없어 답변을 생성하지 않았습니다 (LLM 호출 없음).`,
-      ...rewriteMeta,
+      // 이 파일의 다른 다섯 응답과 같은 이름을 쓴다. 여기만 rewriteMeta라고 적혀 있어서
+      // 선언되지 않은 이름을 펼치다 ReferenceError로 터졌다 — 무관한 질문을 검색한
+      // **모든** 요청이 500이었다. 기권 경로에만 테스트가 없어 749개가 전부 통과했다.
+      ...rewriteInfo,
     })
   }
 
