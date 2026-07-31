@@ -1,6 +1,7 @@
 // RAG 데모용 가상 통신사 "한빛텔레콤" 상담 지식 문서 8건 — 전부 자작 창작물.
 // 서버는 이 문서를 bge-m3 임베딩으로 벡터화해 질문과 코사인 유사도로 검색하고,
-// 임베딩을 쓸 수 없을 때는 rankByKeyword 폴백으로 같은 화면 흐름을 유지한다.
+// 임베딩을 쓸 수 없을 때는 키워드 랭킹 폴백으로 같은 화면 흐름을 유지한다.
+import { tokenize, expandQuery, bigrams } from './korean.js'
 
 export const FAQ_DOCS = [
   {

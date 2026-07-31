@@ -7,7 +7,7 @@ import { logCall, failureMode } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import {
   FAQ_DOCS,
-  rankByKeyword,
+  bm25Rank,
   cosineSim,
   fuseRankings,
   docBlocks,
@@ -268,7 +268,7 @@ export async function onRequestPost(context) {
     try {
       const vector = await vectorRetrieve(env, question, customDocs)
       vectorBackend = vector.backend
-      results = fuseRankings([vector.list, rankByKeyword(question, corpus)], { topK: TOP_K })
+      results = fuseRankings([vector.list, bm25Rank(question, corpus)], { topK: TOP_K })
     } catch {
       results = null
       vectorBackend = null
@@ -277,7 +277,7 @@ export async function onRequestPost(context) {
   if (!results) {
     mode = 'keyword'
     vectorBackend = null
-    results = rankByKeyword(question, corpus).slice(0, TOP_K)
+    results = bm25Rank(question, corpus).slice(0, TOP_K)
   }
   const publicResults = results.map((r) => ({
     id: r.id,

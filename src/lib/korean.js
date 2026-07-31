@@ -23,6 +23,8 @@ const ENDINGS = [
   '인데요', '한데요', '거든요', '나요', '까요', '가요', '데요', '어요', '아요', '해요', '예요',
   '이에요', '네요', '지요', '군요', '려면', '하려고', '되나요', '됩니까', '습니까', '입니까',
   '합니다', '습니다', '입니다', '했어요', '해주세요', '주세요', '싶어요', '있어요', '없어요',
+  // 조건·연결 어미 — 골든셋에서 '해지하면'이 '해지'로 이어지지 않아 추가했다
+  '하려면', '하면', '되면', '한다면', '하고', '해서',
 ]
 
 function stripSuffixes(word, list) {
@@ -64,7 +66,9 @@ export const SYNONYMS = [
   { canon: '로밍', words: ['해외데이터', '해외요금', '해외로밍'] },
   { canon: '결합', words: ['가족결합', '묶음', '패밀리'] },
   { canon: '요금제', words: ['플랜', '상품제'] },
-  { canon: '이전설치', words: ['이사', '이전', '전출'] },
+  // 표준어는 문서에 실제로 있는 형태여야 한다. 문서는 '이전 설치'로 띄어 쓰므로
+  // 표준어를 '이전설치'로 두면 어느 문서와도 맞지 않는다 — 표준어는 '이전'이다.
+  { canon: '이전', words: ['이사', '전출', '이전설치'] },
   { canon: '환불', words: ['취소', '반환'] },
 ]
 
@@ -85,9 +89,11 @@ export function expandQuery(question) {
   for (const t of base) {
     const canon = SYNONYM_INDEX.get(t)
     if (canon) out.add(canon)
-    // 부분 일치도 본다 — '해지수수료가'가 '해지수수료'로 어간 처리되지 않는 경우 대비
+    // 어간 처리가 닿지 못한 활용형까지 본다.
+    // '끊겨요'는 어미 목록으로 자를 수 없다(자르면 한 글자가 남는다). 그런 말은
+    // 앞부분이 동의어와 같으면 같은 뜻으로 본다 — '끊겨요'.startsWith('끊겨').
     for (const [word, c] of SYNONYM_INDEX) {
-      if (word.length >= 3 && t.includes(word)) out.add(c)
+      if (word.length >= 2 && (t.includes(word) || t.startsWith(word))) out.add(c)
     }
   }
   return [...out]

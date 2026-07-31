@@ -7,7 +7,7 @@ import { logCall, failureMode } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import {
   FAQ_DOCS,
-  rankByKeyword,
+  bm25Rank,
   cosineSim,
   docBlocks,
   untrustedBlock,
@@ -104,7 +104,7 @@ async function ragSearch(env, query) {
       // 키워드 폴백으로 진행
     }
   }
-  return rankByKeyword(query, FAQ_DOCS).slice(0, TOP_K)
+  return bm25Rank(query, FAQ_DOCS).slice(0, TOP_K)
 }
 
 export async function onRequestPost(context) {
