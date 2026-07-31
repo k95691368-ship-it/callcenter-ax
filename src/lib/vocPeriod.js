@@ -15,47 +15,13 @@
 // 날짜는 'YYYY-MM-DD' 문자열로만 다룬다. Date 객체로 들고 다니면 로컬/UTC가 섞여
 // 자정 근처에서 하루가 밀리고, 그러면 방금 분석한 통화가 "어제" 칸으로 사라진다.
 
+import { ISO_DATE, shiftDays, daysBetween, todayIso, toUtcMs } from './isoDate.js'
 import { isRepeatCall } from './vocThemes.js'
 import { MIN_ABSOLUTE } from './vocAnomaly.js'
 
-const DAY_MS = 86400000
-export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
-
-// 'YYYY-MM-DD' → UTC 자정 ms. 형식이 아니면 null (조용히 0으로 만들지 않는다 —
-// 0은 1970년이 되어 모든 기간 필터에서 빠지거나 들어가는 유령 데이터가 된다).
-function toUtcMs(iso) {
-  const s = String(iso || '')
-  if (!ISO_DATE.test(s)) return null
-  const [y, m, d] = s.split('-').map(Number)
-  const ms = Date.UTC(y, m - 1, d)
-  // '2026-02-31'처럼 존재하지 않는 날짜는 Date.UTC가 다음 달로 굴려 버린다.
-  // 굴러간 값을 그대로 쓰면 기간 경계가 조용히 어긋나므로 되돌려 확인한다.
-  return new Date(ms).toISOString().slice(0, 10) === s ? ms : null
-}
-
-// 날짜 문자열을 delta일만큼 민다. UTC ms 산술이라 서머타임·타임존 영향을 받지 않는다.
-export function shiftDays(iso, delta) {
-  const ms = toUtcMs(iso)
-  if (ms === null) return null
-  return new Date(ms + delta * DAY_MS).toISOString().slice(0, 10)
-}
-
-// a에서 b까지 며칠인가 (b - a). 같은 날이면 0.
-export function daysBetween(a, b) {
-  const from = toUtcMs(a)
-  const to = toUtcMs(b)
-  if (from === null || to === null) return null
-  return Math.round((to - from) / DAY_MS)
-}
-
-// 오늘 날짜 — **로컬 기준**이다.
-// new Date().toISOString()은 UTC라서 KST(+9)의 자정~오전 9시에 분석한 통화가
-// 전날 날짜로 기록된다. 기간 필터가 없던 때는 티가 나지 않았지만, 이제는 오전 근무
-// 시간대에 분석한 통화가 "오늘"에서 빠지고 "어제"에 들어간다.
-export function todayIso(now = new Date()) {
-  const p = (n) => String(n).padStart(2, '0')
-  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`
-}
+// 날짜 계산은 isoDate.js가 가진다 — 저장 계층(myCalls)이 이 파일을 거치지 않고
+// 날짜 함수만 쓸 수 있게 분리했다. 기존 호출부가 깨지지 않도록 여기서 그대로 재수출한다.
+export { ISO_DATE, shiftDays, daysBetween, todayIso } from './isoDate.js'
 
 // 프리셋. back은 기준일에서 며칠 뒤로 물러난 지점을 구간의 끝으로 삼는지다.
 export const PERIOD_PRESETS = [

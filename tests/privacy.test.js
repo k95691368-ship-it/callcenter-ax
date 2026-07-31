@@ -161,6 +161,17 @@ describe('사용자 입력이 서버로 나가기 전에 개인정보를 가린�
     expect(offenders).toEqual([])
   })
 
+  it('화면 사이로 넘기는 텍스트가 전부 가려진 것이다', () => {
+    // 같은 sessionStorage 키에 한쪽은 가린 값, 다른 쪽은 원문을 넣으면
+    // "이후 이관·저장은 모두 가려진 텍스트"라는 약속이 경로에 따라 달라진다.
+    for (const f of ['SttPage.jsx', 'AnalyzePage.jsx']) {
+      const src = read(f)
+      const at = src.indexOf("sessionStorage.setItem('cc-transcript'")
+      expect(at).toBeGreaterThan(-1)
+      expect(src.slice(at, at + 90)).toMatch(/outbound|maskPii/)
+    }
+  })
+
   it('녹취 화면이 다음 단계로 넘기는 텍스트도 가려진 것이다', () => {
     const src = read('SttPage.jsx')
     const at = src.indexOf("sessionStorage.setItem('cc-transcript'")

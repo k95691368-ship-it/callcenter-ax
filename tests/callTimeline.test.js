@@ -271,3 +271,60 @@ describe('formatClock', () => {
     expect(formatClock(null)).toBe('0:00')
   })
 })
+
+// Whisper가 실제로 내놓는 이상 타임스탬프.
+// 무음 구간에서 환각 텍스트를 만들 때 오디오 끝을 넘긴 end나 음수 start가 섞여 나온다.
+// 이 셋은 전부 "화면이 확신을 갖고 틀린 숫자를 말하는" 자리라, 값 하나가 아니라
+// 그 값으로 계산되는 지표 전체(통화 길이·발화 밀도·분당 글자)가 함께 틀어진다.
+describe('이상 타임스탬프 — 확신을 갖고 틀린 숫자를 말하지 않는다', () => {
+  it('구간 끝이 오디오 길이를 넘어도 통화 길이는 오디오 길이를 넘지 않는다', () => {
+    // 실측(수정 전): 30초 음성이 "통화 길이 620초 · 발화 밀도 100%"로 표시됐다
+    const t = buildTimeline(
+      [
+        { start: 0, end: 8, text: '안녕하세요 한빛텔레콤입니다' },
+        { start: 8, end: 620, text: '네 감사합니다' },
+      ],
+      { durationSec: 30 }
+    )
+    expect(t.callSec).toBe(30)
+    expect(t.speechSec).toBeLessThanOrEqual(30)
+    expect(t.speechRatio).toBeLessThanOrEqual(100)
+  })
+
+  it('음수 시작 시각은 0에서 자른다 ("첫 발화까지 -5초"가 나오지 않는다)', () => {
+    const t = buildTimeline([{ start: -5, end: 3, text: '여보세요' }], { durationSec: 20 })
+    expect(t.leadingSilenceSec).toBe(0)
+    expect(t.speechSec).toBe(3)
+  })
+
+  it('길이 0인 구간의 글자는 발화 속도에 넣지 않는다 (분자·분모 기준을 맞춘다)', () => {
+    // 0초 구간은 speechSec에 1초도 보태지 않으면서 글자는 전부 보탠다.
+    // 실측(수정 전): 분당 48자가 174자로 찍혔다.
+    const withZero = buildTimeline(
+      [
+        { start: 10, end: 10, text: '고객님 확인해 드리겠습니다 잠시만 기다려 주세요' },
+        { start: 12, end: 22, text: '네 처리되었습니다' },
+      ],
+      { durationSec: 30 }
+    )
+    const withoutZero = buildTimeline([{ start: 12, end: 22, text: '네 처리되었습니다' }], { durationSec: 30 })
+    expect(withZero.charsPerMin).toBe(withoutZero.charsPerMin)
+  })
+
+  it('정상 입력의 값은 그대로다 (위 세 가드가 멀쩡한 통화를 건드리지 않는다)', () => {
+    const t = buildTimeline(
+      [
+        { start: 1.2, end: 5.0, text: '안녕하세요 한빛텔레콤 상담사입니다', speaker: 'agent' },
+        { start: 9.4, end: 14.0, text: '인터넷이 자꾸 끊겨서 전화드렸습니다', speaker: 'customer' },
+        { start: 14.5, end: 20.0, text: '불편을 드려 죄송합니다 확인해 드리겠습니다', speaker: 'agent' },
+      ],
+      { durationSec: 22 }
+    )
+    expect(t.callSec).toBe(22)
+    expect(t.speechSec).toBe(13.9)
+    expect(t.speechRatio).toBe(63.2)
+    expect(t.charsPerMin).toBe(220)
+    expect(t.leadingSilenceSec).toBe(1.2)
+    expect(t.silences).toHaveLength(1)
+  })
+})

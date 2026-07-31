@@ -1,7 +1,8 @@
 // /analyze에서 분석한 통화를 브라우저(localStorage)에 누적해 VOC 대시보드에 합산한다.
 // 서버에는 아무것도 저장하지 않는다 — 개인정보 미수집 원칙 유지.
 
-import { todayIso } from './vocPeriod.js'
+// 날짜 함수만 필요하다 — vocPeriod를 거치면 원인 사전·급증 규칙까지 딸려 온다
+import { todayIso } from './isoDate.js'
 
 const KEY = 'cc-mycalls'
 const AGENT_KEY = 'cc-my-agent'

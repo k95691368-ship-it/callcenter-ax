@@ -117,12 +117,26 @@ export function stitchChunks(chunkResults = []) {
 export function buildTimeline(segments, options = {}) {
   const { durationSec = null, silenceMinSec = SILENCE_MIN_SEC, blind = [] } = options
 
+  // 오디오 실제 길이를 알면 그것이 상한이다. Whisper는 무음 구간에서 환각 텍스트를
+  // 만들면서 오디오 끝을 넘긴 end를 부르는 일이 있는데, 그대로 두면 아래 callSec이
+  // 그 값을 따라간다 — 실측: 30초 음성이 "통화 길이 10분 · 발화 밀도 100%"가 됐다.
+  // 음수 시작도 같은 이유로 0에서 자른다("첫 발화까지 -5초"가 나왔다).
+  const hardEnd = num(durationSec)
+  const clamp = (v) => {
+    if (v == null) return null
+    const lo = Math.max(0, v)
+    return hardEnd == null ? lo : Math.min(lo, hardEnd)
+  }
+
   const list = (segments || [])
     .map((s) => ({
-      start: num(s?.start),
-      end: num(s?.end),
+      start: clamp(num(s?.start)),
+      end: clamp(num(s?.end)),
       text: String(s?.text ?? ''),
       speaker: s?.speaker ?? null,
+      // 자르기 전 길이가 0이었거나 자르면서 0이 된 구간 — 시간에는 기여하지 않으면서
+      // 글자만 남아 발화 속도(분당 글자)를 부풀린다. 표시는 하되 속도 계산에서 뺀다.
+      rawSec: (num(s?.end) ?? 0) - (num(s?.start) ?? 0),
     }))
     .filter((s) => s.start != null && s.end != null && s.end >= s.start)
     .sort((a, b) => a.start - b.start || a.end - b.end)
@@ -176,8 +190,14 @@ export function buildTimeline(segments, options = {}) {
   const trailingSec = overlapsBlind(lastEnd, callSec, blind) ? null : Math.max(0, callSec - lastEnd)
 
   // 발화 속도 — 분당 글자(한국어에서는 분당 음절).
-  const totalChars = list.reduce((a, s) => a + speechChars(s.text), 0)
-  const charsPerMin = speechSec > 0 ? Math.round((totalChars / speechSec) * 60) : null
+  //
+  // 분자(글자)와 분모(시간)의 기준을 맞춘다. 길이가 0인 구간은 speechSec에 1초도
+  // 보태지 않으면서 글자는 전부 보태므로, 그대로 두면 속도가 실제보다 높게 나온다 —
+  // 실측: 0초 구간 하나 때문에 분당 48자가 174자로 찍혔다(3.6배).
+  // 그런 구간은 "얼마나 빨리 말했는가"를 판단할 근거 자체가 없으므로 분자에서도 뺀다.
+  const timed = list.filter((s) => s.end > s.start)
+  const totalChars = timed.reduce((a, s) => a + speechChars(s.text), 0)
+  const charsPerMin = speechSec > 0 && totalChars > 0 ? Math.round((totalChars / speechSec) * 60) : null
 
   const rated = list
     .map((s) => ({ start: s.start, end: s.end, sec: s.end - s.start, chars: speechChars(s.text), text: s.text, speaker: s.speaker }))

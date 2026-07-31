@@ -1,6 +1,7 @@
 // VOC 통화 원장을 CSV 텍스트로 만든다 — 대시보드가 보고서·엑셀로 흘러가는 실무 동선.
 // 엑셀 한글 호환용 BOM(﻿)은 다운로드 시점에 호출부가 붙인다.
 import { extractThemes, isRepeatCall } from './vocThemes.js'
+import { maskPii } from './piiMask.js'
 
 export function buildVocCsv(calls) {
   const esc = (v) => {
@@ -25,7 +26,11 @@ export function buildVocCsv(calls) {
       c.date || '',
       // 라벨이 없으면 빈 칸으로 둔다 — '미지정'을 쓰면 그 이름의 상담사가 있는 것처럼 보인다
       c.agent || '',
-      c.title || '',
+      // 저장 시점에도 가리지만 여기서 한 번 더 가린다.
+      // 마스킹을 붙이기 전에 저장된 기록은 원문 제목을 그대로 들고 있고, 그 기록이
+      // 이 파일로 나가면 브라우저 밖으로 개인정보가 처음 흘러나가는 지점이 된다.
+      // 내보내기는 마지막 관문이라 여기서 막지 않으면 되돌릴 방법이 없다.
+      maskPii(c.title || '').text,
       c.analysis?.category || '',
       c.analysis?.sentiment || '',
       c.analysis?.escalate ? 'Y' : 'N',

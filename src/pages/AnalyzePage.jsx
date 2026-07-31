@@ -136,7 +136,10 @@ export default function AnalyzePage() {
   }
 
   function sendToQa() {
-    sessionStorage.setItem('cc-transcript', text)
+    // 넘기는 것도 가린 텍스트다. 녹취 화면은 outbound(마스킹 후)를 넘기는데 여기만
+    // 원문을 넘겨서, 같은 sessionStorage 키에 가린 값과 원문이 섞여 들어갔다 —
+    // 화면이 "이후 이관·저장은 모두 가려진 텍스트"라고 약속한 것과 어긋난다.
+    sessionStorage.setItem('cc-transcript', maskPii(text).text)
     navigate('/qa')
   }
 

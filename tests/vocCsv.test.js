@@ -98,3 +98,28 @@ describe('buildVocCsv', () => {
     expect(buildVocCsv(null).split('\n')).toHaveLength(1)
   })
 })
+
+describe('내보내기가 마지막 관문이다 — 저장된 원문도 여기서 가린다', () => {
+  it('제목에 남아 있던 개인정보가 CSV로 나가지 않는다', () => {
+    // 마스킹을 붙이기 전에 저장된 기록은 원문 제목을 그대로 들고 있다.
+    // 그 기록이 이 파일로 나가면 브라우저 밖으로 개인정보가 처음 흘러나가는 지점이 된다.
+    const legacy = [
+      {
+        id: 'old1',
+        date: '2026-07-31',
+        title: '고객 940101-1234567 연락처 010-1234-5678 확인',
+        mine: true,
+        analysis: { category: '기타', sentiment: '중립', escalate: false },
+      },
+    ]
+    const csv = buildVocCsv(legacy)
+    expect(csv).not.toMatch(/\d{6}-[1-4]\d{6}/)
+    expect(csv).not.toMatch(/01[016-9]-\d{4}-\d{4}/)
+    expect(csv).toContain('940101-1******')
+  })
+
+  it('개인정보가 없는 제목은 그대로 둔다', () => {
+    const clean = [{ id: 'c', date: '2026-07-31', title: '요금제 변경 문의', analysis: { category: '요금' } }]
+    expect(buildVocCsv(clean)).toContain('요금제 변경 문의')
+  })
+})
