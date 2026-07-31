@@ -98,7 +98,7 @@ LLM이 자유 생성하는 지점마다 규칙 기반 검증을 붙여, 프롬�
 npm install
 npm run dev        # 프론트만 (API는 데모 폴백)
 npm run dev:full   # 빌드 + wrangler pages dev (Functions 포함)
-npm test           # vitest 174개 (QA 점수·커스텀 규칙·CER 상한 DP·도메인 보정·RRF 융합·
+npm test           # vitest 439개 (QA 점수·커스텀 규칙·CER 상한 DP·도메인 보정·RRF 융합·
                    #              계약 검증·폴백 사다리·운영 지표·프라이버시 불변식)
 npm run lint       # oxlint
 npm run smoke      # 배포된 사이트 8종 점검 (AI 비용 없이: 라우팅·헬스·집계·정적 자산·
