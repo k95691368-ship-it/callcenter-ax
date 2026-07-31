@@ -5,6 +5,7 @@
 // 그 조립을 규칙으로 처리하면 LLM 호출 없이도(=키 없이도) 동작하고, 부서 라우팅
 // 기준이 코드에 남아 검토·수정이 가능하다. LLM이 붙으면 요약 문장만 더 좋아진다.
 
+import { ESCALATION_RE } from './escalationTerms.js'
 import { customerText } from './callMetrics.js'
 import { extractThemes } from './vocThemes.js'
 import { routeOf } from './teams.js'
@@ -18,7 +19,10 @@ export const OVERRIDE_RULES = [
     id: 'legal',
     team: 'legal',
     reason: '법적 조치·외부 기관 제보가 언급된 건',
-    match: ({ text }) => /(소송|고소|법적|방통위|소비자원|언론|제보|변호사)/.test(text),
+    // 어휘는 escalationTerms.js가 가진다. 여기에 직접 적어 두었더니 도메인 사전이
+    // '방통위'를 '방송통신위원회'로 보정한 통화에서 이 규칙이 통째로 빗나갔다
+    // (법무 P1이 네트워크 P2로 강등됐다).
+    match: ({ text }) => ESCALATION_RE.test(text),
   },
   {
     id: 'retention',

@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
+// 부드러운 스크롤 판정은 motion.js 한 곳에서만 한다 — 여기서 behavior를 직접 지정하면
+// CSS의 scroll-behavior:auto !important 보다 인자가 우선해 '동작 줄이기'가 무시된다.
+import { revealElement } from '../components/motion.js'
 import { WorkersAiNote, ResultNotice } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
 import { computeCer } from '../lib/cer.js'
@@ -255,7 +258,7 @@ export default function SttPage() {
         duration: totalSec ?? (chunkSegments.length ? chunkSegments[chunkSegments.length - 1].end : null),
         notice: [leadNote, note].filter(Boolean).join(' ') || undefined,
       })
-      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+      requestAnimationFrame(() => revealElement(resultRef.current))
       return true
     }
     try {
@@ -342,7 +345,7 @@ export default function SttPage() {
         // 예전과 똑같이 동작한다(다른 화면 하위 호환).
         const data = await postJson('/api/cc/stt', withCompare ? { audio_b64, compare: true } : { audio_b64 })
         setResult({ ...data, plainText: data.text })
-        requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+        requestAnimationFrame(() => revealElement(resultRef.current))
         if (withCompare) {
           if (data.alt?.text) setAltResult(data.alt)
           else if (data.alt?.error) setAltResult({ failed: true, notice: data.alt.error })

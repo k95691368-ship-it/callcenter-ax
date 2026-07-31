@@ -84,8 +84,13 @@ export default function SearchPage() {
     setLoading(true)
     setError('')
     try {
-      // 질문과 '내 문서' 모두 사용자가 입력한 원문이다 — 서버로 나가기 전에 가린다
-      const safeDocs = customDocs.map((d) => ({ ...d, body: maskPii(d.body).text }))
+      // 질문과 '내 문서' 모두 사용자가 입력한 원문이다 — 서버로 나가기 전에 가린다.
+      //
+      // customDocs는 **문자열 배열**이다(빈 줄로 자른 조각). 객체로 스프레드하면
+      // 글자 단위로 펼쳐진 {0:'사',1:'내',…}가 되고 body는 undefined가 된다.
+      // 서버(buildCustomDocs)는 String(d)로 받으므로 그 객체는 "[object Object]"가 되어,
+      // 내 문서 검색이 통째로 무효가 된다. 문자열로 두고 그대로 가린다.
+      const safeDocs = customDocs.map((d) => maskPii(d).text)
       const data = await postJson('/api/cc/search', {
         question: maskPii(question).text,
         ...(safeDocs.length ? { custom_docs: safeDocs } : {}),

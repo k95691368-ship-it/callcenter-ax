@@ -8,6 +8,7 @@
 // 근거(어떤 표현이 몇 번 나왔는가)를 항상 함께 돌려주므로, 점수를 못 믿겠으면
 // 근거를 보고 사람이 판단할 수 있다.
 
+import { ESCALATION_RE } from './escalationTerms.js'
 import { parseTurns } from './callMetrics.js'
 
 // 신호별 가중치 — 값의 근거는 "해지로 가는 경로에서 얼마나 늦은 단계인가"다.
@@ -41,7 +42,8 @@ export const CHURN_SIGNALS = [
     id: 'legal',
     label: '법적 대응·외부 제보 언급',
     weight: 20,
-    patterns: [/소송/, /고소/, /법적/, /방통위/, /소비자원/, /언론/, /제보/, /민원\s*접수/],
+    // 표제어·축약형을 함께 아는 공용 목록을 쓴다(사전 보정 후에도 걸리도록)
+    patterns: [ESCALATION_RE, /민원\s*접수/],
   },
   {
     id: 'compensation',

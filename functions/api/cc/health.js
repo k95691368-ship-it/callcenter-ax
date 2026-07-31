@@ -14,12 +14,22 @@ import { checkDailyBudget, remainingUsd, DAILY_BUDGET_USD } from '../../_lib/bud
 // 주의: 이 점검은 **읽기만** 한다. 예산 카운터를 차감하지 않고 남은 양만 본다 —
 // 상태를 보는 행위가 상태를 바꾸면 그건 점검이 아니다.
 
-// 예산 버킷의 현재 사용량만 읽는다 (checkRateLimit과 달리 INSERT하지 않는다)
-async function bucketUsage(env, bucket) {
+// 예산 버킷의 현재 사용량만 읽는다 (checkRateLimit과 달리 INSERT하지 않는다).
+//
+// **리미터와 같은 창을 봐야 한다.** 실제 판정(rateLimit.js)은 세기 전에 만료 행을
+// 지우지만, 그 삭제는 그 버킷으로 요청이 들어올 때만 일어난다. 여기서 창 없이 전부
+// 세면, 마지막 호출 이후 하루가 지나 아무도 오지 않은 상태에서 옛 행이 그대로 남아
+// "남은 0회 · 한도 소진"이 된다 — 실제로는 다음 요청이 정상 통과하는데도.
+// 이 파일이 존재하는 이유가 "화면이 라이브라고 적어놓고 실제로는 데모인 상태"를
+// 막는 것인데, 창을 빠뜨리면 정확히 그 반대 방향의 거짓말을 하게 된다.
+async function bucketUsage(env, bucket, windowSeconds = 86400) {
   if (!env?.DB) return null
   try {
-    const row = await env.DB.prepare('SELECT COUNT(*) AS count FROM rate_limit_hits WHERE bucket = ?')
-      .bind(bucket)
+    const row = await env.DB.prepare(
+      `SELECT COUNT(*) AS count FROM rate_limit_hits
+        WHERE bucket = ? AND created_at >= datetime('now', '-' || ? || ' seconds')`
+    )
+      .bind(bucket, windowSeconds)
       .first()
     return Number(row?.count) || 0
   } catch {

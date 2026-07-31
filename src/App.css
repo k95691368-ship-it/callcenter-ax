@@ -2266,12 +2266,25 @@
 }
 
 @media (max-width: 640px) {
+  /* 네 자식(시각·화자·발화·교정)의 셀을 전부 명시한다.
+     .seg-fix만 배치하고 나머지를 자동 배치에 맡겼더니, 정작 읽어야 할 발화(.seg-text)가
+     다음 자동 셀인 48px 컬럼으로 밀려 한글이 글자 단위로 세로로 쌓였다 —
+     그 옆 넓은 칸은 '상담사/고객' 버튼이 차지했다. 발화는 한 줄을 통째로 쓴다. */
   .seg-row {
     grid-template-columns: 48px 1fr;
   }
 
-  .seg-fix {
+  .seg-speaker {
     grid-column: 2;
+  }
+
+  .seg-text {
+    grid-column: 1 / -1;
+  }
+
+  .seg-fix {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
   }
 }
 
@@ -2301,7 +2314,21 @@
 }
 
 @media (prefers-color-scheme: dark) {
+  /* 배경만 어둡게 하고 글자색을 두면 본문이 #191f28 on #3a1c1c = 1.07:1 로 사라진다.
+     하필 이 박스가 "원문에서 확인되지 않는 수치" 경고라, 가장 읽혀야 할 때 안 보였다.
+     위의 다른 두 다크 블록(.churn-mid, .guide-alert-warn)은 color를 함께 덮어써
+     정상이었는데 여기만 짝이 빠져 있었다. 대비: 12.73:1 / 7.59:1 / 9.35:1. */
   .numeric-bad {
     background: #3a1c1c;
+    color: #f5e6e6;
+  }
+
+  .numeric-bad .numeric-claim {
+    color: #ff9a9a;
+  }
+
+  .numeric-bad .guide-detail,
+  .numeric-bad .result-empty-sub {
+    color: #d9c5c5;
   }
 }

@@ -13,6 +13,7 @@
 // 대신 규칙은 못 잡는 표현이 있으므로, 하나도 안 걸린 통화를 '미분류'로 드러내
 // 사전을 늘려야 할 지점을 알려준다 — 조용히 0건으로 만들지 않는다.
 
+import { ESCALATION_RE } from './escalationTerms.js'
 import { customerText } from './callMetrics.js'
 import { teamName } from './teams.js'
 
@@ -113,7 +114,7 @@ export const THEMES = [
     id: 'legal',
     label: '외부 기관 신고·법적 대응 언급',
     team: 'legal',
-    patterns: [/소비자원/, /방송통신위원회|방통위/, /민원/, /소송/, /법적으로/, /언론(에)?\s*제보/, /신고(하|할)/],
+    patterns: [ESCALATION_RE, /민원/, /법적으로/, /신고(하|할)/],
   },
 ]
 
