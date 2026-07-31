@@ -209,6 +209,35 @@ export default function AboutPage() {
             <span className="usage-note">지금 이 순간의 실제 상태 (/api/cc/health)</span>
           </div>
         )}
+
+        {/* 바인딩이 있다는 것과 기능이 실제로 동작한다는 것은 다르다.
+            예산이 소진되면 엔진 배지는 여전히 "claude-opus-5"인데 응답은 데모로 나간다.
+            시스템이 그 차이를 스스로 판정해 말하도록 자가 점검 결과를 그대로 싣는다. */}
+        {health?.capabilities && (
+          <div className="capability-list">
+            <p className="about-note">
+              자가 점검 — 이 시스템이 지금 자기가 무엇을 할 수 있다고 판단하는지입니다.
+              ● 실제 동작 · ◐ 대체 경로로 동작 · ○ 동작하지 않음
+            </p>
+            <ul className="plain-list">
+              {health.capabilities.map((c) => (
+                <li key={c.id} className={`capability capability-${c.state}`}>
+                  <strong>
+                    {{ ready: '●', degraded: '◐', off: '○' }[c.state]} {c.label}
+                  </strong>
+                  <span className="capability-detail">{c.detail}</span>
+                </li>
+              ))}
+            </ul>
+            {health.budget?.shared_daily_left != null && (
+              <p className="result-empty-sub">
+                오늘 남은 예산 — 유료 호출 {health.budget.claude_daily_left ?? '—'}/
+                {health.budget.claude_daily_cap}회 · 공유 {health.budget.shared_daily_left}/
+                {health.budget.shared_daily_cap}회
+              </p>
+            )}
+          </div>
+        )}
         <div className="req-table-wrap">
           <table className="req-table">
             <thead>

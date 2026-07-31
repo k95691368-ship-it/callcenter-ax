@@ -2122,3 +2122,40 @@
   line-height: 1.7;
   color: var(--ink-600);
 }
+
+/* ===== 자가 점검 · 폴백 사유 분해 =====
+   "바인딩이 있다"가 아니라 "지금 이 기능이 실제로 무엇을 하는가"를 보여주는 자리. */
+.capability-list {
+  margin-top: 12px;
+}
+
+.capability {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  border-left: 3px solid var(--line);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.capability-ready {
+  border-left-color: var(--blue-600);
+}
+
+.capability-degraded {
+  border-left-color: #d98800;
+}
+
+.capability-off {
+  border-left-color: var(--text-2, #888);
+}
+
+.capability-detail {
+  color: var(--text-2, #555);
+}
+
+.failure-breakdown {
+  margin-top: 14px;
+}
