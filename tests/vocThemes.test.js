@@ -183,3 +183,40 @@ describe('기간 비교 — 카테고리가 아니라 원인 단위로 무엇이
     expect(plan.isNew).toBe(false)
   })
 })
+
+// 판정 결과를 통화 객체 신원으로 기억한다(WeakMap). 캐시는 틀리면 조용히 틀리므로,
+// "두 번째 호출이 첫 번째와 같은 답을 준다"를 코드가 아니라 결과로 확인한다.
+// 특히 집계가 돌려준 배열을 화면이 정렬·가공하는데, 그 변형이 캐시에 스며들면
+// 같은 통화가 새로고침 전후로 다른 원인으로 분류된다.
+describe('판정 캐시 — 두 번째 호출이 첫 번째와 같아야 한다', () => {
+  const calls = [
+    { id: 'a', date: '2026-07-30', title: '속도', transcript: '고객: 인터넷이 자꾸 끊기고 너무 느려요' },
+    { id: 'b', date: '2026-07-30', title: '요금', transcript: '고객: 요금이 갑자기 많이 나왔어요 확인 부탁드려요' },
+    { id: 'c', date: '2026-07-31', title: '재문의', transcript: '고객: 어제도 전화했는데 또 안 됐어요' },
+  ]
+
+  it('같은 입력을 두 번 집계하면 같은 결과가 나온다', () => {
+    const first = JSON.stringify(aggregateThemes(calls))
+    const second = JSON.stringify(aggregateThemes(calls))
+    expect(second).toBe(first)
+  })
+
+  it('집계 결과를 호출부가 가공해도 다음 집계가 오염되지 않는다', () => {
+    const first = aggregateThemes(calls)
+    const before = JSON.stringify(first)
+    // 화면이 실제로 하는 일 — 정렬하고, 근거를 잘라 표시한다
+    first.themes.sort((a, b) => a.label.localeCompare(b.label))
+    first.themes.forEach((t) => t.evidence.push('화면이 덧붙인 값'))
+    first.byDept.reverse()
+    const again = aggregateThemes(calls)
+    expect(JSON.stringify(again)).toBe(before)
+  })
+
+  it('내용이 같아도 다른 객체면 각각 판정한다 (신원 캐시가 값을 섞지 않는다)', () => {
+    const one = { id: 'x', date: '2026-07-31', title: 't', transcript: '고객: 인터넷이 느려요' }
+    const copy = { ...one, transcript: '고객: 요금이 많이 나왔어요' }
+    const a = extractThemes(one).map((t) => t.id)
+    const b = extractThemes(copy).map((t) => t.id)
+    expect(a).not.toEqual(b)
+  })
+})
