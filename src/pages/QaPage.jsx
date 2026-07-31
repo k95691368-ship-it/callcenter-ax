@@ -73,9 +73,18 @@ function EvidenceQuote({ ev }) {
 // 화자 라벨이 없는 전사에서 "상담사가 말했다"고 적으면 거짓이므로, 그때는 미확인이라 쓴다.
 function EvidenceSource({ ev }) {
   return (
-    <p className="scan-reason">
-      전사 {ev.line}번째 줄 · {ev.speaker === 'agent' ? '상담사 발화' : EVIDENCE_UNKNOWN_SPEAKER_NOTE}
-    </p>
+    <>
+      <p className="scan-reason">
+        전사 {ev.line}번째 줄 · {ev.speaker === 'agent' ? '상담사 발화' : EVIDENCE_UNKNOWN_SPEAKER_NOTE}
+      </p>
+      {/* 규칙이 두 발화를 가로질러 걸린 경우. 인용문이 이어 붙은 것이라 원문에 그대로는
+          없다 — 말하지 않으면 하지도 않은 발화를 인용한 문서가 된다. */}
+      {ev.spansLines && (
+        <p className="scan-reason">
+          이 규칙은 {ev.line}번째 줄부터 <strong>두 발화에 걸쳐</strong> 걸렸습니다 — 인용문은 연속된 한 문장이 아닙니다.
+        </p>
+      )}
+    </>
   )
 }
 
@@ -94,16 +103,28 @@ function MentionEvidence({ mention }) {
       </details>
     )
   }
-  // near가 null이면 "찾아봤지만 없다", 키 자체가 없으면 "이 응답은 근거를 계산하지 않았다"다.
-  // 둘을 뭉개면 계산하지 않은 것을 "없다"고 말하게 된다.
+  // near가 null이면 "찾아봤지만 없다", 키 자체가 없으면 "이 응답은 근거를 계산하지 않았다",
+  // skipped면 "애초에 찾을 수 없었다"다. 셋을 뭉개면 하지 않은 일을 했다고 말하게 된다.
   if (!mention.near)
     return 'near' in mention ? (
       <p className="scan-reason">이 통화에서 규칙과 겹치는 발화를 찾지 못했습니다.</p>
     ) : null
+  if (mention.near.skipped)
+    return (
+      <p className="scan-reason">
+        근접 탐색을 하지 못했습니다 — 키워드가 한 글자뿐이라 아무 발화에나 걸립니다(두 글자 이상으로 적어주세요).
+      </p>
+    )
   return (
     <details className="qa-evidence">
       <summary className="scan-reason" style={{ cursor: 'pointer' }}>
-        가장 가까웠던 발화 보기 (부분 일치 {Math.round(mention.near.overlap * 100)}%)
+        {/* 겹친 비율(%)을 쓰지 않는다 — 2글자 규칙 조각에서는 항상 100%가 되어
+            바로 옆 ✗와 부딪힌다(qaRules.js nearestMiss 주석). 규칙 전체 대비로 말한다. */}
+        가장 가까웠던 발화 보기 (
+        {mention.near.matched !== mention.near.literal
+          ? `‘${mention.near.literal}’ 중 ‘${mention.near.matched}’만`
+          : `규칙 표현 ${mention.near.literals}개 중 ${mention.near.literalsHit}개 — ‘${mention.near.matched}’`}
+        )
       </summary>
       <EvidenceQuote ev={mention.near} />
       <EvidenceSource ev={mention.near} />
@@ -167,9 +188,13 @@ export default function QaPage() {
       const ev = m.found ? m.evidence : m.near
       // 근거를 계산하지 않은 응답에 "겹치는 발화 없음"이라고 쓰면 없는 사실을 적는 것이 된다
       if (!ev) return m.found || !('near' in m) ? null : `  · ${m.label}: 겹치는 발화 없음`
+      if (ev.skipped) return `  · ${m.label}: 근접 탐색 불가(키워드가 한 글자)`
       const who = ev.speaker === 'agent' ? '상담사' : '화자 미확인'
       const kind = m.found ? '근거' : '근접(이행 아님)'
-      return `  · ${m.label} ${kind}: "${ev.quote}" (전사 ${ev.line}줄 · ${who})`
+      // 두 발화에 걸친 매치는 이어 붙인 문장이라 원문에 그대로 없다. 복사한 문서가
+      // 상담사에게 그대로 전달되므로 화면과 같은 사실을 여기에도 적는다.
+      const span = ev.spansLines ? ' · 두 발화에 걸침(연속된 한 문장 아님)' : ''
+      return `  · ${m.label} ${kind}: "${ev.quote}" (전사 ${ev.line}줄 · ${who}${span})`
     }
     const cites = result.mentions.map(cite).filter(Boolean)
     const lines = [
@@ -354,12 +379,15 @@ export default function QaPage() {
               <section className="analysis-block">
                 <h2>필수 안내 멘트 체크리스트 (규칙 기반)</h2>
                 {/* O/X만으로는 상담사 앞에서 방어할 수 없다 — 판정 근거가 된 발화를 함께 편다.
-                    이행 건수와 근거를 짚은 건수가 같을 때만 배지를 띄운다(같지 않으면 사라진다). */}
+                    배지 조건은 cited가 아니라 verbatim이다: cited(위치를 짚었나)는 found와
+                    같은 리터럴로 계산돼 구조적으로 항상 같아서, 그 배지는 아무것도 검증하지
+                    못했다. 인용문이 원문 전사에 그대로 있는지를 서버가 다시 확인한 수치만
+                    쓴다 — 두 발화에 걸쳐 매치되면 이 배지가 사라져 그 사실이 드러난다. */}
                 {result.mention_evidence?.found > 0 &&
-                  result.mention_evidence.cited === result.mention_evidence.found && (
+                  result.mention_evidence.verbatim === result.mention_evidence.found && (
                     <div className="result-toolbar">
-                      <VerifyBadge title="이행(O)으로 표시된 항목마다 그 판정의 근거가 된 발화 위치를 규칙 스캔이 함께 기록했습니다. 항목을 펼치면 해당 발화가 보입니다.">
-                        이행 {result.mention_evidence.found}건 모두 근거 발화 확인
+                      <VerifyBadge title="이행(O)으로 표시된 항목마다 근거 발화를 기록했고, 그 인용문이 입력한 전사에 그대로 존재하는지 서버가 다시 대조했습니다.">
+                        이행 {result.mention_evidence.found}건 모두 근거 발화 축자 확인
                       </VerifyBadge>
                     </div>
                   )}

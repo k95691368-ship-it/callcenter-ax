@@ -604,7 +604,8 @@ export default function VocPage() {
             ))}
           </div>
           <p className="result-empty-sub">
-            분류된 통화 {Math.round(themes.taggedRate * 100)}%
+            {/* 표본이 0이면 비율은 잴 수 없다 — 0%로 채우면 통화 없는 구간을 '분류 0%'로 보고한다 */}
+            분류된 통화 {themes.taggedRate == null ? '—' : `${Math.round(themes.taggedRate * 100)}%`}
             {themes.untagged.length > 0 && (
               <>
                 {' '}· 사전에 없는 표현이라 분류하지 못한 통화 <strong>{themes.untagged.length}건</strong> —
@@ -623,7 +624,7 @@ export default function VocPage() {
           <div className="stat-row">
             <div className="stat-tile">
               <span className="stat-label">원인이 잡힌 통화</span>
-              <span className="stat-value">{Math.round(check.taggedRate * 100)}%</span>
+              <span className="stat-value">{check.taggedRate == null ? '—' : `${Math.round(check.taggedRate * 100)}%`}</span>
             </div>
             <div className="stat-tile">
               <span className="stat-label">담당 부서 미정</span>
@@ -631,7 +632,7 @@ export default function VocPage() {
             </div>
             <div className="stat-tile">
               <span className="stat-label">재문의 비율</span>
-              <span className="stat-value">{Math.round(check.repeatRate * 100)}%</span>
+              <span className="stat-value">{check.repeatRate == null ? '—' : `${Math.round(check.repeatRate * 100)}%`}</span>
             </div>
             <div className="stat-tile">
               <span className="stat-label">가려진 개인정보</span>

@@ -168,6 +168,14 @@ function evidenceAt(text, index, rawLength, { lineNumbers = null, speakerLabeled
   // 뒤쪽 공백만 떨어낸다 — 앞쪽을 더 자르면 start가 어긋난다
   quote = quote.slice(0, end) + quote.slice(end).replace(/\s+$/, '')
 
+  // 매치가 두 발화에 걸쳤는가. 규칙의 \s가 개행을 먹으므로 /본인\s*확인/은
+  // "상담사: 본인 / 상담사: 확인 부탁드립니다" 두 줄을 가로질러 걸린다.
+  // 그때 개행을 공백으로 바꿔 이어 붙이면 **전사 어디에도 없는 문장**이 인용된다 —
+  // 이 층이 지켜야 할 단 하나의 불변식("근거는 실제로 있었던 발화다")이 깨지는 자리다.
+  // 인용을 자르지 않고 사실을 함께 실어 보낸다: 자르면 규칙이 무엇을 보고 판정했는지
+  // 알 수 없게 되고, 자르지 않고 침묵하면 없던 발화를 지어낸 것이 된다.
+  const spansLines = text.slice(index, index + length).includes('\n')
+
   return {
     // 원문 전사 기준 줄 번호(1-based). 대응표가 없으면 검사한 텍스트 기준 줄 번호.
     line: lineNumbers?.[lineIdx] ?? lineIdx + 1,
@@ -178,6 +186,7 @@ function evidenceAt(text, index, rawLength, { lineNumbers = null, speakerLabeled
     end,
     clippedStart: from > 0,
     clippedEnd: to < rawLine.length,
+    spansLines,
     speaker: speakerLabeled === true ? 'agent' : 'unknown',
   }
 }
@@ -251,7 +260,11 @@ function sharedPrefix(token, line) {
 // 이행 근거가 아니라 코칭용 참고이므로 partial:true와 겹친 비율을 함께 준다.
 function nearestMiss(text, rule, options) {
   const tokens = ruleLiterals(rule)
-  if (!text || tokens.length === 0) return null
+  // 조각이 하나도 없으면 근접 탐색을 **수행하지 못한 것**이지 "겹치는 발화가 없는 것"이
+  // 아니다(1글자 키워드만 넣은 커스텀 규칙이 여기 걸린다). 둘을 같은 null로 뭉개면
+  // 화면이 "찾아봤지만 없다"고 단정하게 되므로 이유를 붙여 구분한다.
+  if (!text) return null
+  if (tokens.length === 0) return { skipped: 'no-literal' }
   const lines = text.split('\n')
   let best = null
   let offset = 0
@@ -262,16 +275,35 @@ function nearestMiss(text, rule, options) {
       const ratio = hit.len / token.length
       if (ratio < NEAR_MIN_RATIO) continue
       if (!best || ratio > best.ratio || (ratio === best.ratio && hit.len > best.len)) {
-        best = { ratio, len: hit.len, index: offset + hit.at }
+        best = { ratio, len: hit.len, index: offset + hit.at, token, line }
       }
     }
     offset += line.length + 1 // '\n' 한 칸
   }
   if (!best) return null
+
+  // 겹친 비율을 화면에 숫자로 내보내지 않는다.
+  //
+  // 그 값은 `겹친 길이 / 조각 길이`인데, 규칙 조각에는 2글자짜리가 흔하다
+  // ('감사'·'확인'·'드리'·'안내'). 2글자 조각은 통째로 걸리거나 안 걸리거나뿐이라
+  // 걸리기만 하면 **항상 1.0**이다. 실측으로 "네 감사합니다"·"궁금하신 점 있으실까요?"가
+  // 모두 1.0이었다. 그걸 '부분 일치 100%'로 띄우면 바로 옆의 ✗(미이행)와 정면으로
+  // 부딪히고, 수퍼바이저가 "100%인데 왜 감점이냐"고 물으면 답할 말이 없다.
+  // 판정력 없는 수치를 판정력 있는 것처럼 보이게 하는 것이 이 프로젝트가 경계하는 바다.
+  //
+  // 대신 규칙 **전체** 대비 무엇이 나타났는지를 준다 — 이건 실제로 판정력이 있다:
+  // "규칙 표현 3개 중 1개('감사')만 나타남"은 왜 미이행인지 그 자체로 설명한다.
+  const literalsHit = tokens.filter((t) => sharedPrefix(t, best.line)).length
   return {
     ...evidenceAt(text, best.index, best.len, options),
     partial: true,
-    overlap: Math.round(best.ratio * 100) / 100,
+    // 실제로 겹친 문자열 (sharedPrefix가 맞춘 것은 조각의 앞에서부터 best.len 글자다)
+    matched: best.token.slice(0, best.len),
+    // 그 문자열이 나온 규칙 조각 전체. matched와 다르면 조각의 앞부분만 겹친 것이라,
+    // 화면이 "'청약철회' 중 '청약'만"처럼 무엇이 모자랐는지 그대로 말할 수 있다.
+    literal: best.token,
+    literals: tokens.length,
+    literalsHit,
   }
 }
 

@@ -268,9 +268,12 @@ export async function onRequestPost(context) {
   // 재작성본으로 답하게 하면 "와이프랑 같이 쓰면 싸진다던데"에 대고 고객이 묻지도 않은
   // '가족 결합 할인 규정 전문'을 설명하게 된다. 재작성은 문서를 찾는 도구지
   // 질문을 바꿔치기하는 도구가 아니다.
-  // 코퍼스에 사용자 문서(mydoc*)까지 넘기는 이유: 재작성 여부를 "원문이 코퍼스 어휘에
-  // 걸렸는가"로 판단하므로, 사용자가 붙여넣은 문서의 어휘도 근거로 쳐야 한다.
-  const rewrite = rewriteQuery(question, corpus)
+  // 게이트 판정에는 **내장 코퍼스만** 넘긴다(corpus가 아니라 FAQ_DOCS).
+  // 사용자가 방금 붙여넣은 문서는 "이 질문이 상담 관련이다"라는 독립 근거가 될 수 없다 —
+  // 아무 문서나 붙여넣으면 그 어휘로 게이트가 열리고, 무엇보다 평가(searchEval)는 항상
+  // FAQ_DOCS로 재므로 운영만 더 헐거워진다. 평가가 운영과 다른 것을 재면 그 숫자는
+  // 아무것도 보증하지 않는다. 검색 랭킹은 아래에서 corpus 전체로 돈다.
+  const rewrite = rewriteQuery(question, FAQ_DOCS)
   // 응답에 싣는 것은 규칙이 덧붙인 표준 용어와 규칙 id뿐이다(사용자 입력 아님).
   // 상담사가 "왜 이 문서가 나왔는지" 화면에서 확인할 수 있어야 재작성이 블랙박스가 안 된다.
   const rewriteInfo = rewrite.added.length

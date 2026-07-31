@@ -155,8 +155,11 @@ export function splitPeriod(calls, presetId = DEFAULT_PERIOD, opts = {}) {
     anchor: range.anchor,
     current: filterByRange(calls, range),
     previous: prevRange ? filterByRange(calls, prevRange) : [],
-    // 비교가 성립하는지 — '전체'는 비교 대상이 없다
-    comparable: Boolean(prevRange),
+    // 비교가 성립하는지.
+    // '전체'는 비교 대상 구간 자체가 없고, 구간이 있어도 그 구간에 통화가 0건이면
+    // 비교가 아니다 — 모든 원인이 '신규 +N'으로 찍혀 없던 급증을 보고하게 된다.
+    // (내장 샘플만 있는 초기 상태에서 '최근 7일'을 누르면 바로 이 경우가 된다.)
+    comparable: Boolean(prevRange) && filterByRange(calls, prevRange).length > 0,
   }
 }
 

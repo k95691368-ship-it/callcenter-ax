@@ -16,7 +16,7 @@ describe('buildVocCsv', () => {
       { date: '2026-07-28', title: '직접 건', analysis: { category: '불만', sentiment: '강성', escalate: true }, mine: true },
     ])
     expect(csv.split('\n')[0]).toBe(
-      '날짜,제목,유형,감정,에스컬레이션,원인,처리부서,재문의,이탈위험,위험등급,담당,출처'
+      '날짜,상담사,제목,유형,감정,에스컬레이션,원인,처리부서,재문의,이탈위험,위험등급,담당,출처'
     )
     expect(cell(csv, 1, '출처')).toBe('내장 샘플')
     expect(cell(csv, 2, '출처')).toBe('직접 분석')

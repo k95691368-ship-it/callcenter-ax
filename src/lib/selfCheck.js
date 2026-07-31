@@ -92,7 +92,9 @@ export function selfCheck(calls) {
     piiFound += maskPii(call.transcript || '').total
   }
 
-  const rate = (n) => (total ? n / total : 0)
+  // 표본이 0이면 비율은 0%가 아니라 **계산할 수 없는 값**이다.
+  // 0으로 채우면 통화가 한 건도 없는 구간을 '분류 정확도 0%'라고 보고하게 된다.
+  const rate = (n) => (total ? n / total : null)
   const suggestions = suggestThemeTerms(untagged)
 
   const gaps = []
@@ -120,7 +122,16 @@ export function selfCheck(calls) {
       detail: `분류하지 못한 통화에서 ${suggestions.length}개 표현이 반복됩니다 — 승인하면 다음 집계부터 잡힙니다.`,
     })
   }
-  if (gaps.length === 0) {
+  // 표본이 0이면 "사각지대가 없다"가 아니라 **점검할 것이 없었다**이다.
+  // 0건을 두고 '0건 모두 원인이 잡혔습니다'라고 적으면 하지 않은 점검을 통과라고 말하는 것이다.
+  if (total === 0) {
+    gaps.push({
+      id: 'gap-empty',
+      level: 'ok',
+      label: '이 구간에는 점검할 통화가 없습니다',
+      detail: '통화가 한 건도 없어 사각지대를 판정하지 않았습니다 — 사각지대가 없다는 뜻이 아닙니다.',
+    })
+  } else if (gaps.length === 0) {
     gaps.push({
       id: 'gap-none',
       level: 'ok',

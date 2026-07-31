@@ -98,8 +98,12 @@ export function saveMyCall({ title, category, sentiment, escalate, churn, route,
       mine: true,
     })
     localStorage.setItem(KEY, JSON.stringify(calls.slice(-MAX_SAVED)))
+    return true
   } catch {
-    // 저장 불가(시크릿 모드 등)여도 분석 흐름을 막지 않는다
+    // 저장 불가(시크릿 모드 등)여도 분석 흐름을 막지 않는다.
+    // 성공 여부는 돌려준다 — 삼키기만 하면 호출부가 "VOC 대시보드에 누적 완료"라고
+    // 적고, /voc를 열면 그 통화가 없다.
+    return false
   }
 }
 

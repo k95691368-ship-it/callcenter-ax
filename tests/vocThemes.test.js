@@ -119,7 +119,8 @@ describe('집계 — 원인·부서·재문의·미분류', () => {
 
   it('빈 입력에서 터지지 않는다', () => {
     expect(aggregateThemes([]).themes).toEqual([])
-    expect(aggregateThemes(null).taggedRate).toBe(0)
+    // 통화가 0건이면 분류율은 0%가 아니라 잴 수 없는 값이다 (화면은 '—'로 그린다)
+    expect(aggregateThemes(null).taggedRate).toBe(null)
   })
 })
 

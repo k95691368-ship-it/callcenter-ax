@@ -116,7 +116,11 @@ describe('근접 발화 — 근거가 있을 때만 준다', () => {
     expect(r.closing.found).toBe(false)
     expect(r.closing.near.partial).toBe(true)
     expect(r.closing.near.match).toBe('궁금')
-    expect(r.closing.near.overlap).toBeGreaterThanOrEqual(NEAR_MIN_RATIO)
+    // 겹친 비율(%)은 내보내지 않는다 — 2글자 규칙 조각에서는 걸리기만 하면 항상 1.0이라
+    // '부분 일치 100%'가 바로 옆 ✗(미이행)와 정면으로 부딪힌다. 규칙 전체 대비로 말한다.
+    expect(r.closing.near.overlap).toBeUndefined()
+    expect(r.closing.near.matched).toBe('궁금')
+    expect(r.closing.near.literalsHit).toBeLessThan(r.closing.near.literals)
     expect(r.closing.near.speaker).toBe('agent')
   })
 
@@ -166,7 +170,9 @@ describe('커스텀 멘트도 같은 방식으로 근거를 남긴다', () => {
     const c = r['custom-1']
     expect(c.found).toBe(false) // 띄어쓰기가 달라 키워드 포함이 아니다
     expect(c.near.match).toBe('청약')
-    expect(c.near.overlap).toBe(0.5)
+    // 조각이 하나뿐인 규칙은 "N개 중 M개"로 말할 수 없다 — 무엇이 모자랐는지로 말한다
+    expect(c.near.matched).toBe('청약')
+    expect(c.near.literal).toBe('청약철회')
   })
 })
 
@@ -259,8 +265,10 @@ describe('/api/cc/qa — 근거는 키 없이도 나온다 (규칙층이 만든�
     expect(m.recording.evidence.quote).toContain('녹음됩니다')
     expect(m.recording.evidence.line).toBe(2)
     expect(m.recording.evidence.speaker).toBe('agent')
-    // 이행 건수와 근거를 짚은 건수가 같아야 화면이 통과 배지를 띄운다
-    expect(data.mention_evidence).toEqual({ found: 4, cited: 4, near: 0 })
+    // 배지 조건은 cited가 아니라 verbatim이다. cited(위치를 짚었나)는 found와 같은
+    // 리터럴로 계산돼 구조적으로 항상 같아서 아무것도 검증하지 못했다 —
+    // 인용문이 원문 전사에 그대로 있는지 서버가 다시 대조한 값만 판정력이 있다.
+    expect(data.mention_evidence).toEqual({ found: 4, cited: 4, verbatim: 4, near: 0 })
   })
 
   it('화자 라벨이 없으면 근거의 화자를 상담사로 단정하지 않는다', async () => {

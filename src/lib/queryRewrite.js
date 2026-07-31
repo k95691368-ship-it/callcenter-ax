@@ -70,7 +70,9 @@ export const REWRITE_RULES = [
     // 않고 후보만 넓힌다 — 방향은 함께 걸린 topic 규칙이 정한다.
     // '아이·애'는 일부러 뺐다: 아이 관련 질의는 결합·명의가 아니라 소액결제(faq05)로
     // 가야 하는데, '가족'을 넣으면 faq03/faq07로 끌려간다.
-    when: ['아버지', '아빠', '어머니', '엄마', '부모', '와이프', '아내', '남편', '배우자'],
+    // '가족·식구'가 빠져 있었다. 관계어 목록인데 정작 관계어의 대표 낱말이 없어서
+    // "가족끼리 묶으면 얼마 할인되나요"가 topic 하나만 걸린 질의로 분류됐다(실측).
+    when: ['아버지', '아빠', '어머니', '엄마', '부모', '와이프', '아내', '남편', '배우자', '가족', '식구'],
     add: ['가족'],
   },
 ]
@@ -109,10 +111,31 @@ export function corpusVocabulary(docs) {
 //
 // 그래서 두 조건 중 하나를 요구한다:
 //   ① 원문이 이미 코퍼스 어휘에 한 번이라도 걸린다(= 상담 관련 질문이라는 자체 근거), 또는
-//   ② topic 규칙이 걸렸다(= 행위 표현 자체가 상담 주제를 가리킨다).
-// 수식어만 걸린 질의는 재작성하지 않고 원문 그대로 돌려보낸다.
+//   ② topic 규칙과 modifier 규칙이 **함께** 걸렸다.
 //
-// docs를 넘기지 않으면 어휘 근거를 확인할 수 없으므로 topic 규칙만 통과한다(안전한 기본값).
+// ②가 처음에는 "topic 하나면 충분하다"였는데, 그 판단이 틀렸다.
+// '바꾸다·묶다·그만두다'는 이 도메인의 말이 아니라 어느 도메인에나 있는 흔한 동사다.
+// 실측: 도메인 밖 질의 12건 중 8건이 근거 없음 → 확신으로 뒤집혔다.
+//   "다이어트 그만두고 싶다"     → '해지'가 붙어 위약금 문서를 strong으로 답한다
+//   "머리 스타일 바꾸고 싶어요"  → '변경'이 붙어 요금제 문서를 strong으로 답한다
+//   "짐 좀 묶어서 보내주세요"    → '결합'이 붙어 결합 할인 문서를 strong으로 답한다
+// 이 오발동이 abstainAccuracy 1.000에 잡히지 않은 이유는 평가셋의 무관 질의(점심 메뉴·
+// 날씨·주식)에 '바꾸/묶/그만두'가 하나도 없었기 때문이다 — 재지 않는 것은 지켜지지 않는다.
+// 그래서 searchEval.js의 홀드아웃에 이 경로를 재는 질의를 넣었다.
+//
+// 그렇다고 어휘 근거(①)를 모두에게 요구하면 이 층의 존재 이유가 사라진다. 실측으로,
+// 이 파일을 만들게 한 두 질의는 코퍼스와 겹치는 어휘가 정확히 0개다:
+//   "아버지 폰을 제 앞으로 돌리려면" · "와이프랑 같이 쓰면 싸진다던데"
+// 강제하면 홀드아웃 recall@1이 0.857 → 0.786으로 떨어지고 두 케이스 다 죽는다.
+//
+// 행위가 이 도메인의 것이라는 **별도 단서**를 요구하는 것이 답이었다. 관계어('아버지·
+// 와이프')나 상태어('싸다')가 같은 질의에 있으면 그 행위는 상담 맥락일 가능성이 크다.
+// 실측: 오발동 8건 → 1건, 홀드아웃·골든셋 성적은 그대로(0.857 / 1.000), 두 케이스 생존.
+// 남은 1건은 "아버지가 학원 그만두신대요"다 — 관계어와 해지 표현이 실제로 함께 있어
+// 어휘만으로는 상담 질문과 구분할 수 없다. 규칙을 더 붙여 이것까지 막으면 그때는
+// 이 12건이 채점표가 된다(그 이유는 파일 하단 REJECTED 주석과 같다).
+//
+// docs를 넘기지 않으면 어휘 근거를 확인할 수 없으므로 ②만 통과한다(안전한 기본값).
 export function rewriteQuery(question, docs = []) {
   const original = String(question ?? '')
   const empty = { original, text: original, added: [], applied: [], anchored: false, blocked: false }
@@ -125,7 +148,8 @@ export function rewriteQuery(question, docs = []) {
   const vocabulary = corpusVocabulary(docs)
   const anchored = expandQuery(original).some((t) => vocabulary.has(t))
   const hasTopic = hits.some((r) => r.kind === 'topic')
-  if (!anchored && !hasTopic) return { ...empty, blocked: true }
+  const hasModifier = hits.some((r) => r.kind === 'modifier')
+  if (!anchored && !(hasTopic && hasModifier)) return { ...empty, anchored, blocked: true }
 
   // 이미 원문에 있는 말은 덧붙이지 않는다 (같은 말을 두 번 세면 그 문서만 부풀린다)
   const present = new Set(expandQuery(original))

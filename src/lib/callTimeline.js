@@ -168,8 +168,12 @@ export function buildTimeline(segments, options = {}) {
 
   // 첫 발화 전 / 마지막 발화 후의 무음은 상담 중 침묵과 성격이 다르다(연결음·종료 대기).
   // 같은 통에 넣으면 "침묵 40초"가 실제로는 녹음 앞뒤 여백인 경우가 생긴다 — 따로 낸다.
-  const leadingSec = firstStart
-  const trailingSec = Math.max(0, callSec - lastEnd)
+  //
+  // 여기에도 blind를 적용한다. 위 침묵 계산에만 걸어두고 여기서 빠뜨리면, 첫 청크의
+  // 타임스탬프를 못 받았을 때 그 구간이 통째로 "첫 발화까지 57초"로 둔갑한다 —
+  // 실제로는 그 시간에 무슨 말이 오갔는지 **모른다**. 모르는 것은 null로 둔다.
+  const leadingSec = overlapsBlind(0, firstStart, blind) ? null : firstStart
+  const trailingSec = overlapsBlind(lastEnd, callSec, blind) ? null : Math.max(0, callSec - lastEnd)
 
   // 발화 속도 — 분당 글자(한국어에서는 분당 음절).
   const totalChars = list.reduce((a, s) => a + speechChars(s.text), 0)
@@ -197,8 +201,9 @@ export function buildTimeline(segments, options = {}) {
     silenceSec: r1(silenceSec),
     longestSilenceSec: r1(longest.sec),
     longestSilenceAt: longest.start,
-    leadingSilenceSec: r1(leadingSec),
-    trailingSilenceSec: r1(trailingSec),
+    // null(= 그 구간을 모른다)은 0으로 반올림되지 않게 그대로 통과시킨다
+    leadingSilenceSec: leadingSec == null ? null : r1(leadingSec),
+    trailingSilenceSec: trailingSec == null ? null : r1(trailingSec),
     charsPerMin,
     medianCharsPerMin: medianCpm == null ? null : Math.round(medianCpm),
     fastSegments,
@@ -269,7 +274,8 @@ export function diagnoseTimeline(t) {
     })
   }
 
-  if (t.leadingSilenceSec >= 5) {
+  // null이면 진단하지 않는다 — 모르는 구간을 두고 "응대가 늦었다"고 말할 수 없다
+  if (t.leadingSilenceSec != null && t.leadingSilenceSec >= 5) {
     out.push({
       id: 'late-open',
       level: 'info',

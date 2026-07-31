@@ -36,6 +36,8 @@ describe('파이프라인 리포트 — 실패를 침묵으로 넘기지 않는�
       stt: { text: '전사' },
       analysis: { category: '요금', sentiment: '중립', summary: ['한 줄'], actions: ['조치'] },
       qa: { score: { total: 80, grade: 'B', ruleScore: 32, llmScore: 48, deduction: 0 } },
+      // '누적 완료'는 저장이 실제로 됐을 때만 적는다(분석 성공으로 추론하지 않는다)
+      vocSaved: true,
     })
     expect(out).toContain('⑥ VOC 대시보드에 누적 완료')
     expect(out).not.toContain('실패')

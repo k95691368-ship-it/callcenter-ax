@@ -9,12 +9,12 @@ import { buildHandoff, formatHandoff, STAGE_LABELS } from './handoff.js'
 //
 // 문서 맨 앞에는 처리 상태(어디로/누가 언제까지/무엇을 확인)를 둔다. 인수인계를
 // 받는 사람이 먼저 알아야 하는 건 6단계 실행 로그가 아니라 결론이기 때문이다.
-export function buildPipelineReport({ stt, lex, dia, analysis, qa, stageErrors = {}, qaSaved = false }) {
+export function buildPipelineReport({ stt, lex, dia, analysis, qa, stageErrors = {}, qaSaved = false, vocSaved = false }) {
   const lines = ['[콜센터 AX 파이프라인 리포트]']
 
   // 처리 상태는 화면과 같은 함수로 만든다 — 복사한 문서와 화면이 다른 부서를
   // 가리키면 어느 쪽이 맞는지 확인할 방법이 없다.
-  const handoff = buildHandoff({ stt, lex, dia, analysis, qa, stageErrors, qaSaved })
+  const handoff = buildHandoff({ stt, lex, dia, analysis, qa, stageErrors, qaSaved, vocSaved })
   lines.push('', ...formatHandoff(handoff), '')
 
   const failed = (id) => {
@@ -72,7 +72,7 @@ export function buildPipelineReport({ stt, lex, dia, analysis, qa, stageErrors =
 
   // 예전에는 stageErrors.voc가 없으면 무조건 "누적 완료"라고 적었다. 그래서 분석이
   // 없는 부분 실행 리포트가 누적되지도 않은 통화를 누적됐다고 말했다 — 실제 반영
-  // 여부(records.voc)로 판단한다.
+  // 여부(records.voc)로 판단한다 — 그 값은 호출부가 넘긴 실제 저장 결과다.
   if (!failed('voc')) {
     lines.push(
       handoff.records.voc

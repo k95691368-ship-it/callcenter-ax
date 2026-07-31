@@ -196,7 +196,8 @@ export function aggregateThemes(calls) {
     byDept,
     repeats,
     untagged,
-    taggedRate: calls?.length ? (calls.length - untagged.length) / calls.length : 0,
+    // 통화가 0건이면 분류율은 0%가 아니라 잴 수 없는 값이다 (화면은 null을 '—'로 그린다)
+    taggedRate: calls?.length ? (calls.length - untagged.length) / calls.length : null,
   }
 }
 

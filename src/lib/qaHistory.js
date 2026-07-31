@@ -41,12 +41,20 @@ export function saveQaResult(result, { label = '', at = null } = {}) {
       speakerLabeled: result.speaker_labeled !== false,
     })
     localStorage.setItem(KEY, JSON.stringify(list.slice(-MAX_SAVED)))
+    saveQaResult.ok = true
     return loadQaHistory()
   } catch {
-    // 저장 불가 환경(시크릿 모드 등)에서도 평가 흐름은 막지 않는다
+    // 저장 불가 환경(시크릿 모드 등)에서도 평가 흐름은 막지 않는다.
+    // 다만 **실패했다는 사실은 알려야 한다** — 조용히 삼키면 호출부가 "기록 완료"라고
+    // 보고하고, 사용자가 /qa를 열면 이력이 비어 있다.
+    saveQaResult.ok = false
     return loadQaHistory()
   }
 }
+
+// 마지막 저장이 실제로 성공했는가. 반환값(이력 배열)만으로는 구분할 수 없어 별도로 둔다.
+// (setItem 예외를 삼키는 이상, 성공 여부는 어떤 형태로든 밖으로 나가야 한다.)
+saveQaResult.ok = false
 
 export function clearQaHistory() {
   try {

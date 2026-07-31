@@ -85,15 +85,28 @@ describe('게이트 — 재작성이 근거를 만들어내지 못하게 막는�
     expect(r.blocked).toBe(false)
   })
 
-  it('행위 규칙은 어휘 근거가 없어도 통과한다 (행위 표현 자체가 상담 주제다)', () => {
+  it('어휘 근거가 없어도 행위어와 수식어가 함께 걸리면 통과한다', () => {
+    // 이 층이 존재하는 이유인 질의다 — 코퍼스와 겹치는 어휘가 정확히 0개인데도
+    // 관계어('와이프')와 상태어('싸')가 행위('같이 쓰')의 맥락을 상담 쪽으로 고정한다.
     const r = rw('와이프랑 같이 쓰면 싸진다던데')
     expect(r.anchored).toBe(false)
     expect(r.blocked).toBe(false)
   })
 
-  it('docs를 넘기지 않으면 어휘 근거를 확인할 수 없으므로 행위 규칙만 통과한다', () => {
+  it('행위어만 걸린 도메인 밖 질의는 막는다 (근거 없음을 확신으로 뒤집지 않는다)', () => {
+    // '바꾸다·묶다·그만두다'는 어느 도메인에나 있는 흔한 동사다. 행위어 하나로
+    // 통과시켰을 때 도메인 밖 질의 12건 중 8건이 none → strong으로 뒤집혔다(실측).
+    for (const q of ['머리 스타일 바꾸고 싶어요', '학원 그만두려면 어떻게', '짐 좀 묶어서 보내주세요']) {
+      expect(rw(q).blocked).toBe(true)
+      expect(assessRetrieval(bm25Rank(rw(q).text, FAQ_DOCS)).level).toBe('none')
+    }
+  })
+
+  it('docs를 넘기지 않으면 어휘 근거를 확인할 수 없으므로 행위어+수식어만 통과한다', () => {
     expect(rewriteQuery('와이프 선물 싸게').blocked).toBe(true)
-    expect(rewriteQuery('중도해지 비용 문의').added).toContain('해지')
+    // 어휘 근거로만 통과하던 질의는 docs 없이는 막힌다 — 안전한 기본값
+    expect(rewriteQuery('중도해지 비용 문의').blocked).toBe(true)
+    expect(rewriteQuery('와이프랑 같이 쓰면 싸진다던데').added).toContain('결합')
   })
 })
 

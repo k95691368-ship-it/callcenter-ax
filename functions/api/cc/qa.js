@@ -165,12 +165,20 @@ export async function onRequestPost(context) {
     withheld_deduct: withheld.reduce((s, f) => s + (f.withheldDeduct || 0), 0),
   }
 
-  // 근거 집계 — "이행 O" 개수와 "근거 발화를 실제로 짚은" 개수가 같은지 화면이 확인할 수 있게 한다.
-  // 규칙이 이행이라 했는데 위치를 못 짚는 경우가 생기면 배지가 사라져 그 사실이 드러난다.
+  // 근거 집계.
+  //
+  // 처음에는 cited(위치를 짚은 수)와 found(이행 수)를 비교했는데, 그 둘은 같은 리터럴로
+  // 같은 순간에 계산되므로 **구조적으로 항상 같다**. 발동 조건이 없는 가드는 검증이
+  // 아니라 초록 배지를 띄우는 장치일 뿐이다.
+  // 실제로 판정력이 있는 것만 센다: 인용문이 **원문 전사에 그대로 있는가**.
+  // 규칙의 \s가 개행을 먹어 두 발화를 가로지르면 이 값이 found보다 작아지고,
+  // 그때 화면의 배지가 사라져 그 사실이 드러난다(qaRules.js evidenceAt의 spansLines).
+  const verbatim = (m) => m.evidence?.quote && transcript.includes(m.evidence.quote)
   const mentionEvidence = {
     found: mentions.filter((m) => m.found).length,
     cited: mentions.filter((m) => m.found && m.evidence).length,
-    near: mentions.filter((m) => !m.found && m.near).length,
+    verbatim: mentions.filter((m) => m.found && verbatim(m)).length,
+    near: mentions.filter((m) => !m.found && m.near && !m.near.skipped).length,
   }
 
   const respond = (llm, extra = {}) => {

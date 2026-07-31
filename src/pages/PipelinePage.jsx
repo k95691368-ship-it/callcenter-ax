@@ -48,6 +48,8 @@ export default function PipelinePage() {
   const [qa, setQa] = useState(null)
   // 이번 실행의 QA 결과가 코칭 이력에 남았는지 — 처리 상태에 "어디에 기록됐는가"로 들어간다
   const [qaSaved, setQaSaved] = useState(false)
+  // VOC 누적도 같은 이유로 '했다고 믿는 값'이 아니라 '실제 저장 결과'를 들고 있는다
+  const [vocSaved, setVocSaved] = useState(false)
   const [copied, setCopied] = useState('')
 
   // 단계별 실패를 기록하되 파이프라인 전체를 멈추지는 않는다 (STT 실패만 치명적)
@@ -55,7 +57,7 @@ export default function PipelinePage() {
 
   // 6단계 결과를 처리 상태 한 덩어리로 요약한다 — 화면과 리포트가 같은 함수를 쓴다.
   // 실패한 단계는 이 안에서 상태에 반영되므로, 분석이 실패하면 담당 부서도 비어 있다.
-  const handoff = buildHandoff({ stt, lex, dia, analysis, qa, stageErrors, qaSaved })
+  const handoff = buildHandoff({ stt, lex, dia, analysis, qa, stageErrors, qaSaved, vocSaved })
 
   // 6단계 결과 전체를 인수인계 문서 한 장으로 복사한다
   const copyTimerRef = useRef(null)
@@ -99,6 +101,7 @@ export default function PipelinePage() {
     setAnalysis(null)
     setQa(null)
     setQaSaved(false)
+    setVocSaved(false)
     setStageErrors({})
     try {
       // ① STT — 내장 샘플 또는 방금 녹음한 목소리를 실제 Whisper로 전사
@@ -158,13 +161,15 @@ export default function PipelinePage() {
         // 전사 원문은 저장하지 않는다 — qaHistory가 점수·누락 항목만 남긴다.
         const label = String(loadPersisted('cc-qa-agent-label', '') || '').trim()
         saveQaResult(qRes.value, { label: label || '파이프라인 실행' })
-        setQaSaved(true)
+        // 저장 성공 여부를 그대로 반영한다. 무조건 true로 두면 시크릿 모드·쿼터 초과에서
+        // 화면과 리포트가 '코칭 이력에 기록 완료'라고 적는데 /qa에는 아무것도 없다.
+        setQaSaved(saveQaResult.ok)
       } else setStageErrors((e) => ({ ...e, qa: qRes.reason?.message || '평가 실패' }))
 
       // ⑥ VOC 누적 — 분석이 성공한 경우에만
       setStage(5)
       if (aRes.status === 'fulfilled') {
-        saveMyCall({
+        const stored = saveMyCall({
           title: `파이프라인 시연: ${transcript.slice(0, 24)}`,
           category: aRes.value.category,
           sentiment: aRes.value.sentiment,
@@ -172,6 +177,10 @@ export default function PipelinePage() {
           churn: aRes.value.churn,
           route: aRes.value.ticket?.route,
         })
+        setVocSaved(stored)
+        if (!stored) {
+          setStageErrors((e) => ({ ...e, voc: '브라우저에 저장할 수 없어 이번 통화는 누적되지 않았습니다.' }))
+        }
       } else {
         setStageErrors((e) => ({ ...e, voc: '분석이 실패해 이번 통화는 누적하지 않았습니다.' }))
       }
@@ -375,12 +384,12 @@ export default function PipelinePage() {
 
             <div className="churn-box">
               <div className="churn-head">
+                {/* 문구는 buildHandoff의 assignment 하나에서만 온다 — 화면이 owner의
+                    null 여부로 직접 고르면 '1선 종결 가능' 아래에 '담당 미배정'이 뜬다. */}
                 <span className={`churn-level ${TONE_BADGE[handoff.status.tone] || 'churn-low'}`}>
-                  {handoff.owner ? `${handoff.owner.priority} · ${handoff.owner.team}` : '담당 미배정'}
+                  {handoff.assignment.label}
                 </span>
-                <span className="usage-note">
-                  {handoff.due ? `처리 기한: ${handoff.due}` : '자동 배정 근거 없음 — 담당자는 사람이 정해야 합니다'}
-                </span>
+                <span className="usage-note">{handoff.assignment.note}</span>
                 <span className="usage-note">{handoff.run.label}</span>
               </div>
               {handoff.title && <p className="pipe-text">{handoff.title}</p>}

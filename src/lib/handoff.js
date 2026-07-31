@@ -43,7 +43,7 @@ const LEVEL_RANK = { high: 0, warn: 1, info: 2 }
 
 // 처리 상태를 만든다.
 // 입력은 PipelinePage가 들고 있는 6단계 상태 그대로다(추가 호출·추가 계산 없음).
-export function buildHandoff({ stt, lex, dia, analysis, qa, stageErrors, qaSaved = false } = {}) {
+export function buildHandoff({ stt, lex, dia, analysis, qa, stageErrors, qaSaved = false, vocSaved = false } = {}) {
   const errors = stageErrors || {}
 
   const present = {
@@ -106,6 +106,19 @@ export function buildHandoff({ stt, lex, dia, analysis, qa, stageErrors, qaSaved
     // "언제까지"는 SLA 문구 그대로 쓴다. 날짜로 환산하면 영업일·접수 시각을 모르는
     // 상태에서 없는 정보를 지어내는 셈이 된다.
     due: owner?.sla || null,
+    // 배정 문구는 **여기서 한 번만** 정한다.
+    //
+    // 화면이 owner의 null 여부만 보고 문구를 고르면, 에스컬레이션이 아닌 모든 통화
+    // (= 정상 문의 전부)에서 '1선 종결 가능'이라는 헤드라인 바로 아래에 '담당 미배정 ·
+    // 자동 배정 근거 없음'이 뜬다. 운영자는 그것을 "자동 배정이 실패했다"로 읽는데
+    // 실제 결론은 "이관이 필요 없다"이고, 복사한 문서에는 '추가 이관 없음'이라고 적혀
+    // 있어 어느 쪽이 맞는지 확인할 방법이 없다.
+    // 배정할 근거가 없는 것 / 배정이 필요 없는 것 / 배정된 것은 서로 다른 세 상태다.
+    assignment: owner
+      ? { label: `${owner.priority} · ${owner.team}`, note: `처리 기한: ${owner.sla}` }
+      : status.id === 'close'
+        ? { label: '추가 이관 없음', note: '1선에서 종결합니다 — 배정이 필요 없습니다' }
+        : { label: '미배정', note: '자동 배정 근거가 없어 사람이 정해야 합니다' },
     title: ticket?.title || null,
     ticketText: ticket?.text || null,
     churn: churn
@@ -126,8 +139,13 @@ export function buildHandoff({ stt, lex, dia, analysis, qa, stageErrors, qaSaved
         }
       : null,
     // 이 실행이 어디에 남았는가 — 남지 않았으면 남지 않았다고 적는다.
+    //
+    // voc는 "분석이 성공했으니 누적됐을 것"이라는 추론이 아니라 **실제 저장 결과**다.
+    // 추론으로 두면 저장 불가 환경(시크릿 모드·쿼터 초과)에서 saveMyCall이 조용히
+    // 실패했는데 화면은 'VOC 대시보드에 누적되었습니다'라고 적고, /voc를 열면 없다.
+    // 이 커밋이 고쳤다고 한 바로 그 유형의 오보고를 다른 자리에 다시 만드는 셈이 된다.
     records: {
-      voc: present.voc,
+      voc: present.voc && Boolean(vocSaved),
       qaHistory: Boolean(qaSaved) && Boolean(score),
     },
     checks: buildChecks({ failed, analyzed, analysis, churn, qa, score, dia }),
@@ -294,14 +312,12 @@ export function formatHandoff(handoff) {
   if (!handoff) return []
   const lines = ['─── 처리 상태 (이 통화는 어떻게 처리되는가) ───', `상태: ${handoff.headline}`]
   lines.push(`  ${handoff.status.detail}`)
+  // 화면과 같은 assignment를 쓴다 — 두 곳이 각자 문구를 고르면 같은 통화를 두고
+  // 화면은 '담당 미배정', 문서는 '추가 이관 없음'이라고 적는 일이 다시 생긴다.
   if (handoff.owner) {
     lines.push(`담당: ${handoff.owner.team} · 우선순위 ${handoff.owner.priority} · 처리 기한 ${handoff.owner.sla}`)
-  } else if (handoff.status.id === 'close') {
-    lines.push('담당: 추가 이관 없음 — 1선에서 종결합니다.')
   } else {
-    // 배정할 근거가 없는 것과 배정이 필요 없는 것은 다르다. 한 문장으로 뭉치면
-    // 실패해서 비어 있는 칸이 "이관 불필요"로 읽힌다.
-    lines.push('담당: 미배정 — 자동 배정 근거가 없어 사람이 정해야 합니다.')
+    lines.push(`담당: ${handoff.assignment.label} — ${handoff.assignment.note}`)
   }
   lines.push(`실행: ${handoff.run.label}`)
   if (handoff.quality) {

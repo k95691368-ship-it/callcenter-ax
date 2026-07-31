@@ -23,21 +23,17 @@ export default function SegmentTimeline({ segments, onSeek, onSpeakerChange, act
 
       {metrics && (
         <>
+          {/* '통화 길이'와 '무음 합계'는 위 '통화 시간 지표' 섹션이 가진다.
+              두 컴포넌트가 같은 이름의 타일을 서로 다른 정의로 그리고 있었다 —
+              위는 0초부터·duration 반영·모르는 구간(blind) 제외, 여기는 첫 발화~마지막 발화·
+              모든 간격 합산. 화면 위아래로 '통화 길이 3:35'와 '3:19'가 연달아 나오면
+              심사자는 어느 쪽이 맞는지 알 수 없고, 둘 다 '실측'이라 적혀 있었다.
+              여기는 **화자 라벨이 있어야만 낼 수 있는 지표**만 남긴다. */}
           <div className="stat-row">
-            <div className="stat-tile">
-              <span className="stat-label">통화 길이</span>
-              <span className="stat-value">{formatTime(metrics.totalSec)}</span>
-            </div>
             <div className="stat-tile">
               <span className="stat-label">발화 비율 (상담사/고객)</span>
               <span className="stat-value">
                 {metrics.agentRatio == null ? '—' : `${metrics.agentRatio}% / ${metrics.customerRatio}%`}
-              </span>
-            </div>
-            <div className="stat-tile">
-              <span className="stat-label">무음 합계 · 최장</span>
-              <span className="stat-value">
-                {metrics.silenceSec}초 · {metrics.longestSilenceSec}초
               </span>
             </div>
             <div className="stat-tile">

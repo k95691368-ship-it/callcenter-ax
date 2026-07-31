@@ -49,7 +49,9 @@ const FULL = {
   analysis: ANALYSIS,
   qa: QA,
   stageErrors: {},
+  // 저장 성공 여부는 추론하지 않는다 — 호출부가 실제 저장 결과를 넘긴다
   qaSaved: true,
+  vocSaved: true,
 }
 
 describe('buildHandoff — 어디로 / 누가 언제까지', () => {

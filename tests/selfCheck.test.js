@@ -32,7 +32,9 @@ describe('자가 점검 — 시스템이 자기 사각지대를 안다', () => {
 
   it('빈 입력·null에서 터지지 않는다', () => {
     expect(selfCheck([]).total).toBe(0)
-    expect(selfCheck(null).taggedRate).toBe(0)
+    // 표본이 0이면 비율은 0%가 아니라 잴 수 없는 값이다 — 0으로 채우면
+    // 통화가 한 건도 없는 구간을 '분류 정확도 0%'라고 보고하게 된다
+    expect(selfCheck(null).taggedRate).toBe(null)
     expect(selfCheck([]).gaps.length).toBeGreaterThan(0)
   })
 })

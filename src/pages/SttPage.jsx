@@ -220,6 +220,10 @@ export default function SttPage() {
     const chunkSegments = []
     let chunkCount = 0
     let demoChunks = 0
+    // 파일 전체 길이와 청크 목록 — 전사가 중간에 끊겨도 이 둘은 변하지 않는다.
+    // 이것이 없으면 중단 시 "시도한 만큼"이 곧 통화 길이가 되어 화면이 짧게 거짓말한다.
+    let totalSec = null
+    let allChunks = []
     const startedAt = Date.now()
     const commit = (note) => {
       const merged = texts.filter(Boolean).join(' ')
@@ -236,10 +240,19 @@ export default function SttPage() {
         latency: Date.now() - startedAt,
         chunked: texts.length,
         segments: segments.length ? segments : null,
-        blind,
-        // 통화 길이는 디코딩으로 이미 알고 있다(마지막 청크의 끝) — 서버에 물을 필요가 없고,
-        // 중단된 전사에서도 "몇 분짜리 통화였는지"는 정확하다.
-        duration: chunkSegments.length ? chunkSegments[chunkSegments.length - 1].end : null,
+        // 시도조차 못 한 청크(중단 지점 이후)도 '모르는 시간'이다. 넣지 않으면
+        // blind가 비어 partial=false가 되어, 남은 구간이 화면에서 통째로 사라진 채
+        // "일부 구간 타임스탬프 없음" 경고도 뜨지 않는다.
+        blind: [
+          ...blind,
+          ...allChunks.slice(chunkSegments.length).map((c) => ({ start: c.start, end: c.end })),
+        ],
+        // 통화 길이는 디코딩으로 이미 알고 있다 — 서버에 물을 필요가 없다.
+        // **시도한 마지막 청크의 끝이 아니라 파일 전체의 끝**을 쓴다. 전자를 쓰면
+        // 20분 통화가 12번째 청크에서 레이트리밋에 걸렸을 때 화면이 "통화 길이 10:05"를
+        // 표시한다 — 남은 9분이 존재 자체로 사라지고, 그 사실을 말하는 경고도 뜨지 않는다.
+        // 돌리지 못한 구간은 아래에서 blind로 넘겨 "모르는 시간"으로 남긴다.
+        duration: totalSec ?? (chunkSegments.length ? chunkSegments[chunkSegments.length - 1].end : null),
         notice: [leadNote, note].filter(Boolean).join(' ') || undefined,
       })
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
@@ -249,6 +262,9 @@ export default function SttPage() {
       setChunkNote('긴 녹취를 디코딩·분할하고 있어요 (16kHz 모노 리샘플)...')
       const chunks = await chunkAudioFile(theFile)
       chunkCount = chunks.length
+      // 파일 전체 길이 — 중단되더라도 이 값은 변하지 않는다
+      totalSec = chunks.length ? chunks[chunks.length - 1].end : null
+      allChunks = chunks
       for (let i = 0; i < chunks.length; i++) {
         setChunkNote(`청크 ${i + 1}/${chunks.length} 전사 중 (${Math.round(chunks[i].start)}~${Math.round(chunks[i].end)}초)...`)
         const r = await postJson('/api/cc/stt', { audio_b64: bufferToB64(chunks[i].wav) })
@@ -702,10 +718,15 @@ export default function SttPage() {
                   타임스탬프가 없으면(데모·구형 응답) 계산하지 않고 그 사실을 대신 말한다. */}
               {timeline ? (
                 <section className="seg-block">
-                  <h2>통화 시간 지표 — 타임스탬프 실측</h2>
+                  {/* 데모 응답에도 구간 시각이 실려 온다(stt.js DEMO_SEGMENTS). 그것을
+                      '실측'이라고 적으면, 예시용으로 적어 넣은 4.2초 간격이 실제로 잰 침묵으로
+                      읽힌다 — 계산할 수 없는 것을 보여주지 않는다는 원칙과 정면으로 부딪힌다.
+                      숨기지 않고 무엇을 근거로 잰 값인지를 정확히 밝힌다. */}
+                  <h2>통화 시간 지표 — {result.demo ? '예시 구간 시각 기준' : '타임스탬프 실측'}</h2>
                   <p className="result-empty-sub">
-                    글자 수로 추정한 값이 아니라 Whisper가 구간마다 돌려준 시작·끝 시각으로 잰
-                    값입니다. 화자 라벨이 없어도 계산됩니다.
+                    {result.demo
+                      ? '예시 전사에 함께 들어 있는 구간 시각으로 계산한 시연값입니다 — 실제 음성을 잰 값이 아닙니다. 배포 환경에서 음성을 올리면 Whisper가 돌려준 실제 시각으로 같은 지표가 계산됩니다.'
+                      : '글자 수로 추정한 값이 아니라 Whisper가 구간마다 돌려준 시작·끝 시각으로 잰 값입니다. 화자 라벨이 없어도 계산됩니다.'}
                     {timeline.partial &&
                       ` 일부 구간(${timeline.blindSec}초)은 시간 정보를 받지 못해 제외했고, 아래 수치는 관측된 ${timeline.coveredSec}초 기준입니다.`}
                   </p>
@@ -773,11 +794,9 @@ export default function SttPage() {
               ) : (
                 // 계산할 수 없는 것을 0으로 보여주지 않는다 — 왜 못 하는지를 말한다.
                 <ResultNotice
-                  text={
-                    result.demo
-                      ? '예시 전사에는 타임스탬프가 없어 시간 지표(침묵·발화 속도·발화 밀도)는 계산하지 않았습니다. 배포 환경에서 실제 음성을 전사하면 표시됩니다.'
-                      : '이 응답에는 구간 타임스탬프가 없어 시간 지표를 계산하지 않았습니다. 대화 균형은 아래 글자 수 기반 지표로만 볼 수 있습니다.'
-                  }
+                  // 데모 분기를 따로 두지 않는다 — 서버는 데모 응답에도 구간을 주므로
+                  // 그 분기는 도달할 수 없었고, 도달하지 못하는 문구는 검증되지 않는다.
+                  text="이 응답에는 구간 타임스탬프가 없어 시간 지표를 계산하지 않았습니다. 대화 균형은 아래 글자 수 기반 지표로만 볼 수 있습니다."
                 />
               )}
               {/* 시간이 붙은 구간 — 평문 전사로는 할 수 없던 것들이 여기서 가능해진다 */}
