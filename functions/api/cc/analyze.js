@@ -6,6 +6,7 @@ import { runLlmLadder } from '../../_lib/ladder.js'
 import { logCall, failureMode } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { groundedness } from '../../../src/lib/grounding.js'
+import { numericSupport, numericNotice } from '../../../src/lib/numericSupport.js'
 import { estimateChurn, applyChurnBand } from '../../../src/lib/churnRisk.js'
 import { computeCallMetrics, diagnoseCallMetrics } from '../../../src/lib/callMetrics.js'
 import { buildTicketDraft } from '../../../src/lib/ticketDraft.js'
@@ -191,6 +192,20 @@ export async function onRequestPost(context) {
     result.escalate = Boolean(result.escalate)
     // 요약 근거율 — 3줄 요약의 표현이 통화 원문과 실제로 겹치는 비율 (투명 표시)
     const grounding = groundedness(result.summary.join(' '), transcript)
+    // 수치 근거 게이트.
+    //
+    // 근거율만으로는 요약을 지킬 수 없다. 요약은 원래 바꿔 말하는 것이라 2-gram 겹침이
+    // 낮게 나오고(실측: RAG 답변 0.59 대 요약 0.33), 검색과 같은 임계를 걸면 정상 요약이
+    // 전부 걸린다. 그렇다고 표시만 하면 게이트가 없는 것과 같다.
+    //
+    // 요약에서 실제로 위험한 것은 표현이 아니라 **숫자**다. "위약금 8만 원", "3일 내 처리"가
+    // 통화에 없던 값이면 그대로 오안내가 되고, 2-gram은 숫자 하나 바뀐 문장을 구분하지 못한다.
+    // 그래서 표현은 근거율로 보여주고, 숫자는 규칙으로 대조한다.
+    //
+    // 조치(actions)까지 함께 검사한다 — 고객에게 약속으로 나가는 문장이 그쪽이다.
+    // 분석 자체를 버리지는 않는다. 분류·감정·에스컬레이션은 숫자가 틀려도 쓸모가 있고,
+    // 어느 수치가 문제인지 짚어 주면 사람이 원문에서 확인할 수 있다.
+    const numeric = numericSupport([...result.summary, ...(result.actions || [])].join(' '), transcript)
     // 이탈 위험은 LLM 점수를 규칙 신호가 만든 구간으로 보정한다. LLM은 맥락을 읽지만
     // 점수 스케일이 흔들리고, 규칙은 맥락을 못 읽지만 흔들리지 않는다 — 겹쳐 쓴다.
     const churn = { ...applyChurnBand(result.churn_risk, transcript), reason: result.churn_reason || null }
@@ -200,7 +215,9 @@ export async function onRequestPost(context) {
       usage: r.usage,
       llm_model: r.model,
       grounding,
+      numeric,
       ...withDeterministicLayers(result, transcript, churn),
+      ...(numericNotice(numeric) ? { notice: numericNotice(numeric) } : {}),
     })
   } catch (err) {
     logCall(context, { endpoint: 'analyze', mode: failureMode(err), startedAt, usage: err?.usage })

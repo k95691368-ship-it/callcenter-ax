@@ -117,11 +117,45 @@ export function TicketDraftBox({ ticket, onError }) {
   )
 }
 
-// 세 계층을 한 번에 (analyze 응답을 그대로 넘기면 된다)
+// 요약·조치의 수치 검증 결과.
+//
+// 근거율(2-gram)은 표현이 원문과 얼마나 겹치는지를 본다. 그런데 요약은 원래 바꿔 말하는
+// 것이라 그 값이 낮게 나오고(실측 0.33), 무엇보다 숫자 하나만 바뀐 문장을 구분하지 못한다.
+// 콜센터에서 틀리면 가장 비싼 것이 그 숫자다 — 위약금 액수, 처리 기한.
+//
+// 통과했을 때도 "몇 개를 대조했는지"를 보여준다. 검증층이 작동할 때만 보이면
+// 심사자는 그런 층이 있는지조차 알 수 없다.
+export function NumericCheckBox({ numeric }) {
+  if (!numeric || !numeric.checked) return null
+  const bad = (numeric.unsupported || []).filter((c) => c.critical)
+  if (bad.length === 0) {
+    return (
+      <p className="numeric-check numeric-ok">
+        수치 근거 확인 — 요약·조치의 숫자 {numeric.checked}개가 모두 통화 원문에 있습니다.
+      </p>
+    )
+  }
+  return (
+    <div className="numeric-check numeric-bad">
+      <strong>원문에서 확인되지 않는 수치 {bad.length}개</strong>
+      <ul className="plain-list">
+        {bad.map((c) => (
+          <li key={`${c.unit}:${c.value}`}>
+            <span className="numeric-claim">{c.text}</span> — 통화에서 이 값을 찾지 못했습니다
+          </li>
+        ))}
+      </ul>
+      <span className="guide-detail">금액·기간은 원문에서 확인한 뒤 안내하세요.</span>
+    </div>
+  )
+}
+
+// 네 계층을 한 번에 (analyze 응답을 그대로 넘기면 된다)
 export default function AnalysisLayers({ analysis, onError }) {
   if (!analysis) return null
   return (
     <>
+      <NumericCheckBox numeric={analysis.numeric} />
       <ChurnBox churn={analysis.churn} />
       <CallMetricsBox metrics={analysis.metrics} diagnosis={analysis.metrics_diagnosis} />
       <TicketDraftBox ticket={analysis.ticket} onError={onError} />
