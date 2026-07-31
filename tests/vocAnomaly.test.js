@@ -7,6 +7,7 @@ import {
   detectVocAnomalies,
   MIN_ABSOLUTE,
 } from '../src/lib/vocAnomaly.js'
+import { teamName } from '../src/lib/teams.js'
 
 // 이상 감지는 누적된 로컬 데이터만으로 동작한다(API 키 불필요).
 // 표본이 작을 때 경보를 남발하지 않는다는 계약이 핵심이다.
@@ -124,8 +125,9 @@ describe('detectThemeSpikes — "불만이 늘었다"가 아니라 "무엇이 �
     const speed = spikes.find((s) => s.theme === 'speed')
     expect(speed).toBeTruthy()
     expect(speed.now).toBe(3)
-    expect(speed.dept).toBe('네트워크 운영팀')
-    expect(speed.label).toContain('네트워크 운영팀')
+    // 부서 이름은 teams.js 한 곳에서 온다 (대시보드·티켓 배정과 같은 표)
+    expect(speed.dept).toBe(teamName('network'))
+    expect(speed.label).toContain(teamName('network'))
     expect(speed.detail).toContain('공유가 필요')
   })
 

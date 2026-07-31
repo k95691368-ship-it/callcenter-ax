@@ -223,8 +223,14 @@ const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n))
 // mid가 어느 정도 정보를 갖지만, 0.5 근처에서는 정성 품질에 대해 거의 아무것도
 // 말해주지 않는다(체크리스트를 절반 읽었다는 사실과 공감 능력은 별개다).
 // 애매한 신호에도 같은 폭을 쓰면 LLM이 전사를 읽고 낸 정당한 판단을 밴드가 조용히
-// 덮어쓴다. 그래서 폭은 넓히는 방향으로만 움직인다 — 보정 개입이 예전보다 늘어나는
-// 경우는 없고, 신호가 가장 뚜렷한 이행률 0/1에서는 기존 ±5를 그대로 유지한다.
+// 덮어쓴다. 그래서 폭은 넓히는 방향으로만 움직이고, 신호가 가장 뚜렷한 이행률 0/1에서만
+// 기존 ±5를 유지한다.
+//
+// 다만 "폭이 넓어지므로 개입이 줄어든다"는 말은 절반만 참이다. 감점 보류(귀속 미확인)로
+// penalty가 빠지면 밴드의 중심(mid)이 위로 이동하고, 그러면 예전에 구간 안이던 낮은
+// 점수가 새 하한 밖으로 나가 **상향 보정**된다. 확인할 수 없는 증거로 점수를 깎지
+// 않겠다는 원칙은 점수를 올려주는 근거로도 쓸 수 없으므로, 하한은 보류가 없었을 때의
+// 값보다 올라가지 않게 묶는다.
 const BAND_HALF_MIN = 5
 const BAND_HALF_MAX = 8
 
@@ -236,12 +242,18 @@ export function bandHalfWidth(ratio) {
 export function consistencyBand(mentions = [], findings = []) {
   const total = mentions.length || 1
   const ratio = mentions.filter((m) => m.found).length / total
+  const list = Array.isArray(findings) ? findings : []
   // 감점이 보류된(귀속 미확인) 표현은 상담사에 대한 증거가 아니므로 밴드 신호에서도 뺀다
-  const counted = findings.filter((f) => (f.deduct ?? 0) > 0).length
-  const penalty = Math.min(counted * 2, 6)
-  const mid = clamp(Math.round(8 + ratio * 10 - penalty), 2, 18)
+  const counted = list.filter((f) => (f.deduct ?? 0) > 0).length
+  const midFor = (n) => clamp(Math.round(8 + ratio * 10 - Math.min(n * 2, 6)), 2, 18)
+  const mid = midFor(counted)
   const half = bandHalfWidth(ratio)
-  return { low: clamp(mid - half, 0, 20), high: clamp(mid + half, 0, 20) }
+  // 보류를 세지 않았을 때의 하한 — 보류 덕분에 하한이 올라가 상향 보정이 새로 생기는 것을 막는다
+  const lowIfAllCounted = clamp(midFor(list.length) - half, 0, 20)
+  return {
+    low: Math.min(clamp(mid - half, 0, 20), lowIfAllCounted),
+    high: clamp(mid + half, 0, 20),
+  }
 }
 
 export function applyConsistencyBand(llm, { mentions = [], findings = [] } = {}) {
@@ -288,14 +300,66 @@ export function computeQaScore({ mentions = [], findings = [], llm = null }) {
 // 짧은 인용 + 긴 평가 문장인 정상 코멘트가 0.09까지 내려가 허위 인용(0.07~0.20)과
 // 구분되지 않았다. 인용부호 안의 구간만 떼어 재면 실제 인용 0.64~1.00 대
 // 허위 인용 0.07~0.20으로 갈라지므로, 임계값 0.5는 그 사이 여유 구간이다.
-const QUOTE_RE = /["'“”‘’「」『』]([^"'“”‘’「」『』\n]{2,80})["'“”‘’「」『』]/g
+//
+// 여닫이를 짝지어야 한다. 한 문자 클래스로 양쪽을 받으면 짧은 인용("네")을 만났을 때
+// 정규식이 그 여는 따옴표를 버리고 닫는 따옴표를 여는 것으로 재해석해,
+// 인용 사이의 연결어("라고만 답하고")를 인용으로 뽑고 바로 뒤의 진짜 인용은 통째로
+// 삼켜버린다. 상담사의 짧은 응대를 인용하는 것은 QA 코멘트에서 아주 흔한 패턴이라
+// 정상 코멘트가 허위로 낙인찍혔다. 그래서 1자 인용도 "소비"시킨다.
+const QUOTE_RE =
+  /"([^"\n]{1,80})"|'([^'\n]{1,80})'|“([^”\n]{1,80})”|‘([^’\n]{1,80})’|「([^」\n]{1,80})」|『([^』\n]{1,80})』/g
 
-export const QUOTE_GROUNDING_MIN = 0.5
+// 인용은 축자(逐字)여야 한다 — 그래서 2-gram 겹침이 아니라 "전사에 그대로 있는가"로 잰다.
+//
+// 2-gram 방식은 짧은 한국어 문장에서 무너진다. 실측: 전사에 없는 "환불해 드리겠습니다"·
+// "알겠습니다"·"확인됩니다"가 전부 0.5~0.75로 통과했다 — `습니`·`니다` 같은 보편 어미
+// 2-gram만 맞아도 임계를 넘기 때문이다. 하지 않은 약속의 날조가 잡아야 할 1순위인데
+// 정확히 그것이 빠져나갔다. 반대로 축자 일치는 어미 편승이 원리적으로 불가능하고,
+// 길이가 짧아도 정확하다("네"는 전사에 있으면 1.0, 없으면 0).
+export const QUOTE_VERBATIM_MIN = 0.8
+
+// 이 길이 미만의 인용은 부분 일치를 인정하지 않고 정확히 들어 있어야 통과시킨다.
+// 짧은 문장에서는 부분 일치조차 어미로 채워진다: "알겠습니다"(5자)는 전사의
+// "드리겠습니다"와 "겠습니다" 4자가 겹쳐 비율 0.8을 그냥 넘는다.
+// 짧은 인용은 애초에 정확히 맞추기 쉬우므로 관용을 둘 이유도 없다.
+export const QUOTE_EXACT_BELOW = 10
 
 export const UNVERIFIED_QUOTE_NOTE = ' ⚠ 인용 근거 미확인: 이 인용을 통화 전사에서 찾지 못했습니다.'
 
+// 비교 전 정규화 — 공백·구두점 차이로 축자 인용이 어긋나는 것을 막는다
+const normalizeQuote = (s) => String(s ?? '').replace(/[\s.,!?…·"'“”‘’「」『』]/g, '')
+
+// 인용이 전사에 얼마나 그대로 들어 있는지 (0~1).
+// 전체 LCS를 구하지 않고, 긴 조각부터 짧은 조각 순으로 "그대로 있는지"만 확인한다 —
+// 인용은 최대 80자라 탐색 범위가 작고, indexOf는 엔진 수준에서 빠르다.
+export function quoteVerbatimRatio(quote, transcript) {
+  const q = normalizeQuote(quote)
+  const t = normalizeQuote(transcript)
+  if (!q || !t) return 0
+  if (t.includes(q)) return 1
+  for (let len = q.length - 1; len > 0; len--) {
+    for (let i = 0; i + len <= q.length; i++) {
+      if (t.includes(q.slice(i, i + len))) return len / q.length
+    }
+  }
+  return 0
+}
+
+// 인용 하나가 근거로 인정되는가.
+// 긴 인용에는 사소한 표현 차이를 허용하되(0.8), 짧은 인용은 정확 포함만 인정한다.
+export function isQuoteVerified(quote, transcript) {
+  const q = normalizeQuote(quote)
+  const t = normalizeQuote(transcript)
+  if (!q || !t) return false
+  if (t.includes(q)) return true
+  if (q.length < QUOTE_EXACT_BELOW) return false
+  return quoteVerbatimRatio(q, t) >= QUOTE_VERBATIM_MIN
+}
+
 export function extractQuotes(comment) {
-  return [...String(comment ?? '').matchAll(QUOTE_RE)].map((m) => m[1].trim()).filter((q) => q.length >= 2)
+  return [...String(comment ?? '').matchAll(QUOTE_RE)]
+    .map((m) => (m.slice(1).find((g) => g !== undefined) ?? '').trim())
+    .filter(Boolean)
 }
 
 // 코멘트별 인용 근거율을 재고, 통화에 없는 발화를 인용한 코멘트에 표시를 붙인다.
@@ -313,10 +377,10 @@ export function auditComments(comments = [], transcript = '') {
       scores.push(null)
       return c
     }
-    const best = Math.max(...quotes.map((q) => groundedness(q, transcript)))
+    const best = Math.max(...quotes.map((q) => quoteVerbatimRatio(q, transcript)))
     scores.push(best)
     sum += best
-    if (best >= QUOTE_GROUNDING_MIN) return c
+    if (quotes.some((q) => isQuoteVerified(q, transcript))) return c
     flagged.push(i)
     return `${c}${UNVERIFIED_QUOTE_NOTE}`
   })
@@ -324,7 +388,7 @@ export function auditComments(comments = [], transcript = '') {
   return {
     comments: marked,
     grounding: {
-      threshold: QUOTE_GROUNDING_MIN,
+      threshold: QUOTE_VERBATIM_MIN,
       scores,
       quoted,
       unquoted: list.length - quoted,

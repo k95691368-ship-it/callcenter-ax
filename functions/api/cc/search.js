@@ -31,14 +31,26 @@ export const GROUNDING_FLOOR = 0.15
 // "문서에서 확인되지 않습니다"는 RAG가 지켜야 할 정답 행동인데, 문서와 겹칠 표현이 애초에
 // 적어 근거율이 낮게 나온다. 이걸 발췌로 강등하면 "없다"고 말해야 할 자리에 관련 없는
 // 발췌를 근거처럼 보여주는 더 나쁜 결과가 되므로 강등 대상에서 제외한다.
-const REFUSAL_RE = /(확인되지\s*않|확인할\s*수\s*없|찾을\s*수\s*없|문서에\s*(는\s*)?없|나와\s*있지\s*않|정보가\s*없)/
+//
+// 표현을 낱개로 나열하면 거의 다 놓친다. "포함되어 있지 않습니다", "명시되어 있지
+// 않습니다", "언급되어 있지 않습니다", "답변드릴 수 없는 내용입니다" 같은 흔한 문장이
+// 전부 빠져서, 정답 행동인 거절 답변이 강등되고 그 자리에 확신형 발췌가 들어갔다.
+// 그래서 낱말 목록이 아니라 "자료를 가리키는 말"과 "없다는 말"이 함께 나오는지로 본다.
+const SOURCE_WORD_RE = /(문서|규정|자료|정보|내용|약관|안내)/
+const ABSENCE_RE =
+  /((포함|명시|언급|기재|기술|확인|안내)되(어|어서)?\s*있지\s*않|되지\s*않(습니|았|아)|확인할\s*수\s*없|찾을\s*수\s*없|답변(을)?\s*(드릴|할)\s*수\s*없|나와\s*있지\s*않|없습니다|없는\s*내용)/
+
+export function isRefusalAnswer(answer = '') {
+  const text = String(answer ?? '')
+  return SOURCE_WORD_RE.test(text) && ABSENCE_RE.test(text)
+}
 
 // 'ok' 그대로 표시 | 'warn' 경고 문구와 함께 표시 | 'reject' 발췌 템플릿으로 강등
 export function groundingVerdict(grounding, answer = '') {
   if (typeof grounding !== 'number' || Number.isNaN(grounding)) return 'ok'
   const text = String(answer ?? '')
   // 짧은 답변은 2-gram 표본이 작아 비율이 크게 흔들린다 — 강등은 충분히 긴 답변에만 적용한다
-  const downgradable = text.trim().length >= 40 && !REFUSAL_RE.test(text)
+  const downgradable = text.trim().length >= 40 && !isRefusalAnswer(text)
   if (grounding < GROUNDING_FLOOR && downgradable) return 'reject'
   if (grounding < GROUNDING_WARN) return 'warn'
   return 'ok'
@@ -209,14 +221,17 @@ export function buildCustomDocs(raw) {
 // 못했다"고 답하면서 results에는 문서를 그대로 실어 보냈다 — 화면에 근거 문서 3건이 뜬 채로
 // "찾지 못함"이라고 적히는 계약 불일치였다. 이제 문서를 실어 보내는 한 그 문서를 근거로
 // 밝히고, 매치가 약하다는 사실만 문장에 남긴다.
-export function templateAnswer(results) {
+// forceWeak: 근거율 게이트가 LLM 답변을 버린 자리에 쓸 때 켠다.
+// 근거가 없다고 판단해 버린 자리에 "관련 규정에 따르면"이라는 가장 확신에 찬 문장을
+// 넣으면, 환각을 막으려던 게이트가 오히려 확신형 오답을 만든다.
+export function templateAnswer(results, { forceWeak = false } = {}) {
   const top = results?.[0]
   if (!top) {
     return { answer: '검색할 지식 문서가 없습니다. 질문을 다시 입력해주세요.', cited_ids: [] }
   }
   // 하이브리드 경로는 rrf가 순위를 정하므로 rrf가 있으면 그 자체로 유효한 후보다.
   // 키워드 폴백에서 가중치가 0이면 어떤 질문 토큰도 문서에 없었다는 뜻이라 약한 매치다.
-  const weak = top.rrf == null && !(top.score > 0)
+  const weak = forceWeak || (top.rrf == null && !(top.score > 0))
   const excerpt = top.body.split('. ').slice(0, 2).join('. ')
   return {
     answer: weak
@@ -310,7 +325,7 @@ export async function onRequestPost(context) {
       workersMaxTokens: 768,
     })
     const result = r.input
-    ensureContract(result, { arrays: ['cited_ids'], strings: ['answer'] })
+    ensureContract(result, { stringArrays: ['cited_ids'], strings: ['answer'] })
     // 근거율 게이트 — 답변 표현이 검색 문서와 실제로 겹치는 비율을 결정적으로 측정
     const docsText = results.map((x) => `${x.title} ${x.body}`).join(' ')
     const grounding = groundedness(result.answer, docsText)
@@ -318,7 +333,9 @@ export async function onRequestPost(context) {
     // 강등: 근거가 거의 없는 답변은 표시하지 않고 문서 발췌로 대체한다. 화자 분리의
     // 원문 보존 게이트와 같은 처리(demo/guarded + notice)로 프론트 계약을 맞춘다.
     if (verdict === 'reject') {
-      const t = templateAnswer(results)
+      // 근거가 없다고 판단해 LLM 답변을 버린 자리다. 여기에 확신형 문구를 쓰면
+      // 환각을 막으려던 게이트가 스스로 확신형 오답을 만든다.
+      const t = templateAnswer(results, { forceWeak: true })
       logCall(context, { endpoint: 'search', mode: `guarded-${mode}`, startedAt, usage: r.usage })
       return json({
         demo: true,

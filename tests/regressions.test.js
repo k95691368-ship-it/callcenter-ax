@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { buildPipelineReport } from '../src/lib/pipelineReport.js'
 import { planChunks, exceedsChunkLimit, MAX_CHUNKS, CHUNK_SECONDS } from '../src/lib/audioChunk.js'
-import { hasSpeakerLabels } from '../src/lib/qaRules.js'
+import {
+  hasSpeakerLabels,
+  auditComments,
+  extractQuotes,
+  quoteVerbatimRatio,
+  consistencyBand,
+} from '../src/lib/qaRules.js'
 import { ENDPOINT_LABEL } from '../src/lib/statsSummary.js'
 
 // 감사에서 실제로 발견된 버그들을 다시 들어오지 못하게 막는 테스트.
@@ -73,6 +79,59 @@ describe('hasSpeakerLabels', () => {
   it('전각 콜론과 agent 표기도 인식한다', () => {
     expect(hasSpeakerLabels('상담원： 네')).toBe(true)
     expect(hasSpeakerLabels('agent: hello')).toBe(true)
+  })
+})
+
+describe('QA 인용 검증 — 어미 편승과 따옴표 재해석', () => {
+  const CALL = [
+    '상담사: 안녕하세요, 한빛텔레콤 상담사입니다. 통화 내용이 녹음됩니다.',
+    '고객: 요금이 왜 이렇게 올랐나요?',
+    '상담사: 본인 확인 부탁드립니다. 다음 달 1일부터 적용되도록 처리해 드리겠습니다.',
+  ].join('\n')
+
+  it('하지 않은 약속을 지어낸 인용을 잡는다 (2-gram 방식이 놓치던 1순위 사례)', () => {
+    // 전사에 없는 문장인데 "습니/니다" 같은 보편 어미만 겹쳐 0.5~0.75로 통과하던 것들
+    for (const fake of ['환불해 드리겠습니다', '알겠습니다', '확인됩니다', '규정입니다']) {
+      const r = auditComments([`상담사가 "${fake}"라고 답했습니다.`], CALL)
+      expect(r.grounding.flagged).toEqual([0])
+    }
+  })
+
+  it('전사에 그대로 있는 인용은 통과한다', () => {
+    const r = auditComments(['"본인 확인 부탁드립니다"라고 요청했습니다.'], CALL)
+    expect(r.grounding.flagged).toEqual([])
+    expect(r.grounding.scores[0]).toBe(1)
+  })
+
+  it('짧은 인용이 뒤따르는 진짜 인용을 삼키지 않는다', () => {
+    // 여닫이를 짝짓지 않으면 "네"의 닫는 따옴표가 여는 것으로 재해석돼
+    // 연결어("라고만 답하고")가 인용으로 뽑히고 진짜 인용은 측정조차 되지 않았다.
+    const quotes = extractQuotes('상담사는 "네"라고만 답하고 "본인 확인 부탁드립니다"를 이행했습니다.')
+    expect(quotes).toContain('네')
+    expect(quotes).toContain('본인 확인 부탁드립니다')
+    expect(quotes).not.toContain('라고만 답하고')
+  })
+
+  it('짧아도 전사에 있으면 허위로 몰지 않는다', () => {
+    const r = auditComments(['고객이 "네"라고 답했습니다.'], '고객: 네')
+    expect(r.grounding.flagged).toEqual([])
+  })
+
+  it('축자 비율은 부분 일치를 비율로 돌려준다', () => {
+    expect(quoteVerbatimRatio('본인 확인 부탁드립니다', CALL)).toBe(1)
+    expect(quoteVerbatimRatio('전혀 다른 문장입니다', '아무 관련 없는 내용')).toBeLessThan(0.8)
+    expect(quoteVerbatimRatio('', CALL)).toBe(0)
+    expect(quoteVerbatimRatio('무엇이든', '')).toBe(0)
+  })
+})
+
+describe('일관성 밴드 — 감점 보류가 상향 보정을 만들지 않는다', () => {
+  it('보류로 penalty가 빠져도 하한은 올라가지 않는다', () => {
+    const mentions = [{ found: false }, { found: false }, { found: false }, { found: false }, { found: false }]
+    const held = [{ deduct: 0 }, { deduct: 0 }, { deduct: 0 }]
+    const counted = [{ deduct: 4 }, { deduct: 4 }, { deduct: 4 }]
+    // 확인할 수 없는 증거로 점수를 깎지 않겠다는 원칙은 점수를 올려주는 근거도 될 수 없다
+    expect(consistencyBand(mentions, held).low).toBeLessThanOrEqual(consistencyBand(mentions, counted).low)
   })
 })
 

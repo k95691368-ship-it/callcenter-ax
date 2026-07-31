@@ -39,6 +39,20 @@ export function parseTurns(transcript) {
   return turns.filter((t) => t.text)
 }
 
+// 고객 발화만 — 원인 태깅·부서 라우팅처럼 "고객이 무엇을 요구했나"를 판정하는 곳에서 쓴다.
+//
+// 상담사는 거의 모든 통화에서 위약금·환불·설치 절차를 안내한다. 그 발화까지 함께 훑으면
+// 소액결제 차단을 요청한 통화가 상담사의 "환불 절차" 안내 한 줄 때문에 보상 심의팀으로
+// 배정된다(실제로 내장 샘플에서 그렇게 됐다). 요구는 고객이 말한 것이어야 한다.
+//
+// 화자 라벨이 없으면 전체를 돌려주고 그 사실을 함께 알린다 — 라벨이 없다고 아무것도
+// 판정하지 않으면, 화자 분리 전 전사에서는 기능이 통째로 꺼진다.
+export function customerText(transcript) {
+  const customer = parseTurns(transcript).filter((t) => t.speaker === 'customer')
+  if (!customer.length) return { text: String(transcript || ''), labeled: false }
+  return { text: customer.map((t) => t.text).join('\n'), labeled: true }
+}
+
 const pct = (a, b) => (b > 0 ? Math.round((a / b) * 1000) / 10 : 0)
 
 // 반환: 라벨이 없으면 null (계산할 수 없는 것을 0으로 보여주면 거짓말이 된다)

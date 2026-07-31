@@ -119,7 +119,7 @@ export async function onRequestPost(context) {
       workersMaxTokens: 1024,
     })
     const result = r.input
-    ensureContract(result, { arrays: ['findings', 'recommendations'], strings: ['headline'] })
+    ensureContract(result, { stringArrays: ['findings', 'recommendations'], strings: ['headline'] })
     // 숫자 검증 게이트 — 리포트 속 숫자가 실제 집계(또는 파생 퍼센트)에 존재하는지 대조.
     // 권고(recommendations)도 함께 검사한다. 예전에는 headline·findings만 봤는데,
     // 권고문에도 "3일 내", "20% 감축" 같은 숫자가 들어가므로 검증 밖에 두면

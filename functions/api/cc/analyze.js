@@ -184,7 +184,7 @@ export async function onRequestPost(context) {
     })
     const result = r.input
     ensureContract(result, {
-      arrays: ['summary', 'intent_keywords', 'actions'],
+      stringArrays: ['summary', 'intent_keywords', 'actions'],
       strings: ['category', 'sentiment'],
     })
     result.summary = result.summary.slice(0, 3)

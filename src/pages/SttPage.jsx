@@ -12,6 +12,7 @@ import {
   chunkAudioFile,
   bufferToB64,
   describeUpload,
+  formatDuration,
   needsChunking,
   toMb,
   CHUNK_SECONDS,
@@ -243,8 +244,19 @@ export default function SttPage() {
       // 단발 호출 한도를 넘는 긴 녹취는 오류가 아니라 분할 전사로 자동 전환한다.
       // 판정 기준을 서버 한도에서 끌어오므로(needsChunking), 예전처럼 4MB 파일을
       // 단발로 보낼 수 있는데도 6청크로 쪼개 유료 호출을 6번 쓰는 일이 없다.
-      // 비교 모드는 위에서 2MB로 이미 걸러졌으므로 여기 오는 건 비교가 아닌 경로다.
+      //
+      // 비교 모드는 크기(2MB)로만 걸러진다. 길이 기준이 생긴 뒤로는 2MB 안에서도
+      // 5분을 넘는 저비트레이트 파일(48kbps 2MB ≈ 6분)이 분할 경로로 들어올 수 있는데,
+      // transcribeLong은 비교를 하지 않으므로 체크박스는 켜진 채 비교표만 조용히
+      // 사라진다. 사라지게 두지 말고 무엇이 생략됐는지 알린다.
       if (needsChunking(theFile.size, durationSec)) {
+        if (withCompare) {
+          setCompare(false)
+          setError(
+            `길이가 길어 분할 전사로 진행합니다 (약 ${formatDuration(durationSec) || '5분 초과'}). ` +
+              '2종 모델 비교는 5분 이하 음성에서만 가능해 이번에는 생략했습니다.'
+          )
+        }
         await transcribeLong(theFile)
         return
       }

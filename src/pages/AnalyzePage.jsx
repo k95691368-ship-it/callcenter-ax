@@ -8,6 +8,7 @@ import CharCount, { LimitNote } from '../components/CharCount.jsx'
 import { revealElement } from '../components/motion.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { saveMyCall } from '../lib/myCalls.js'
+import AnalysisLayers from '../components/AnalysisLayers.jsx'
 import { splitCalls, MAX_BATCH_CALLS, MAX_CALL_CHARS } from '../lib/batchSplit.js'
 
 // 서버가 조용히 잘라내는 상한 (functions/api/cc/analyze.js의 MAX_CHARS)
@@ -104,11 +105,16 @@ export default function AnalyzePage() {
       const data = await postJson('/api/cc/analyze', { transcript: text })
       setResult(data)
       // 분석 결과를 브라우저에 누적 → VOC 대시보드에 합산 (서버 저장 없음)
+      // churn·route까지 남겨야 VOC 대장의 '이탈위험·위험등급·담당' 열이 채워진다.
+      // 지금까지 4개 필드만 저장해서, 서버가 계산한 위험도가 저장 단계에서 사라지고
+      // 대장에서는 그 열이 항상 빈칸이었다 — 값이 없는 게 아니라 버려지고 있었다.
       saveMyCall({
         title: text.replace(/^(상담사|고객)\s*[:：]\s*/, '').split('\n')[0],
         category: data.category,
         sentiment: data.sentiment,
         escalate: data.escalate,
+        churn: data.churn,
+        route: data.ticket?.route,
       })
       requestAnimationFrame(() => revealElement(resultRef.current))
     } catch (err) {
@@ -178,11 +184,14 @@ export default function AnalyzePage() {
   function saveBatchToVoc() {
     if (!batchResult) return
     batchResult.calls.forEach((c, i) => {
+      // 일괄 분석도 건별로 churn·route를 계산해 보낸다(withTriage) — 함께 저장한다
       saveMyCall({
         title: (batchResult.inputs[i] || '').replace(/^(상담사|고객)\s*[:：]\s*/, '').split('\n')[0],
         category: c.category,
         sentiment: c.sentiment,
         escalate: c.escalate,
+        churn: c.churn,
+        route: c.route,
       })
     })
     setBatchSaved(true)
@@ -306,6 +315,11 @@ export default function AnalyzePage() {
                   <p>{result.escalate_reason || '사람 담당자의 판단이 필요한 건입니다.'}</p>
                 </div>
               )}
+
+              {/* 서버는 LLM 응답 위에 규칙 계층(이탈 위험·대화 지표·티켓 초안)을 얹어 항상 함께
+                  보낸다. 이 화면은 그 값을 받아 놓고 쓰지 않아, 통화 분석 전용 화면인데도
+                  파이프라인 화면보다 적게 보여주고 있었다. */}
+              <AnalysisLayers analysis={result} onError={setCopyError} />
 
               <div className="hub-cta result-actions">
                 <button type="button" className="btn-ghost" onClick={copyResult}>

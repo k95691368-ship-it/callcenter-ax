@@ -13,102 +13,106 @@
 // 대신 규칙은 못 잡는 표현이 있으므로, 하나도 안 걸린 통화를 '미분류'로 드러내
 // 사전을 늘려야 할 지점을 알려준다 — 조용히 0건으로 만들지 않는다.
 
+import { customerText } from './callMetrics.js'
+import { teamName } from './teams.js'
+
 // 고객 발화만 뽑는다. 상담사의 안내 문구("위약금이 발생합니다")까지 세면
 // 모든 통화가 그 주제로 잡힌다 — 원인은 고객이 말한 것이어야 한다.
+// 화자 분리는 callMetrics.parseTurns 하나만 쓴다 (상담원/agent 라벨·연속 줄 병합까지
+// 이미 처리한다). 같은 일을 두 번 구현하면 한쪽만 고쳐지는 날이 온다.
 export function customerSpeech(transcript) {
-  const text = String(transcript || '')
-  if (!text.includes('고객:')) return text
-  return text
-    .split('\n')
-    .filter((line) => line.trim().startsWith('고객:'))
-    .map((line) => line.replace(/^\s*고객:\s*/, ''))
-    .join('\n')
+  return customerText(transcript).text
 }
 
-// 원인 사전. dept는 이 원인이 반복될 때 실제로 움직여야 하는 조직이다.
+// 원인 사전. team은 이 원인이 반복될 때 실제로 움직여야 하는 조직이며,
+// 부서 이름·SLA·우선순위는 teams.js 한 곳에서 온다 — 티켓 배정과 같은 표를 쓴다.
+// (예전에는 여기에 부서 이름을 직접 적어, 대시보드는 '부가서비스팀'이라 하고
+//  티켓은 '보상 심의팀'으로 보내는 모순이 있었다.)
 export const THEMES = [
   {
     id: 'speed',
     label: '인터넷 속도 저하·끊김',
-    dept: '네트워크 운영팀',
+    team: 'network',
     patterns: [/속도(가|는)?\s*(느|안|저하)/, /느려/, /끊[기겨김]/, /접속(이)?\s*안\s*(되|돼)/, /인터넷(이)?\s*안\s*(되|돼)/],
   },
   {
     id: 'overcharge',
     label: '요금 과다 청구',
-    dept: '요금 정산팀',
+    team: 'billing',
     patterns: [/요금이\s*왜/, /과다/, /많이\s*나[왔온]/, /더\s*나[왔온]/, /청구(가|된)?\s*(이상|잘못)/, /사기/],
   },
   {
     id: 'roaming',
     label: '해외 로밍 요금',
-    dept: '요금 정산팀',
+    team: 'billing',
     patterns: [/로밍/, /해외\s*(데이터|요금)/],
   },
   {
     id: 'penalty',
     label: '위약금·할인반환금',
-    dept: '해지 방어팀',
+    team: 'retention',
     patterns: [/위약금/, /할인반환금/, /약정(이)?\s*(남|끝)/],
   },
   {
     id: 'churn',
     label: '해지·번호이동 의사',
-    dept: '해지 방어팀',
+    team: 'retention',
     patterns: [/해지(하려|할|해\s*주)/, /번호이동/, /다른\s*회사/, /끊을?\s*거/],
   },
   {
     id: 'plan',
     label: '요금제 변경·비용 절감',
-    dept: '요금 상담팀',
+    team: 'planAdvice',
     patterns: [/요금제(를)?\s*(바꾸|변경|줄)/, /비싼\s*것?\s*같/, /싼\s*걸로/, /데이터를?\s*많이\s*안/],
   },
   {
     id: 'billing_date',
     label: '납부일·자동이체 변경',
-    dept: '요금 정산팀',
+    team: 'billing',
     patterns: [/자동이체/, /납부(일|날짜)/, /출금(일|날짜)/, /월급날/],
   },
   {
     id: 'micropay',
     label: '소액결제 차단·환불',
-    dept: '부가서비스팀',
+    team: 'vas',
     patterns: [/소액결제/, /게임\s*결제/, /결제가\s*자꾸/],
   },
   {
     id: 'bundle',
     label: '결합할인·가족결합',
-    dept: '영업 지원팀',
+    team: 'sales',
     patterns: [/결합/, /가족\s*(회선|할인)/, /묶으/],
   },
   {
     id: 'install',
     label: '설치·이전·AS 방문',
-    dept: '설치 운영팀',
+    team: 'install',
     patterns: [/설치/, /기사(님)?(이|가)?\s*(와|방문|다녀)/, /이전\s*설치/, /점검/],
   },
   {
     id: 'namechange',
     label: '명의 변경 절차',
-    dept: '가입 지원팀',
-    patterns: [/명의\s*변경/, /명의를?\s*(바꾸|이전)/],
+    team: 'onboarding',
+    // "제 명의로 바꾸려면"처럼 조사가 '로'인 경우가 실제 발화에서 더 흔하다.
+    // 조사를 '를'로만 잡아 두면 정작 대표적인 표현을 놓친다.
+    patterns: [/명의\s*변경/, /명의(를|로|가)?\s*(바꾸|변경|이전)/],
   },
   {
     id: 'signup',
     label: '신규 가입 상담',
-    dept: '영업 지원팀',
+    team: 'sales',
     patterns: [/새로\s*가입/, /신규\s*가입/, /가입하려/],
   },
   {
     id: 'agent_quality',
     label: '상담 응대 미흡',
-    dept: 'QA · 교육팀',
+    team: 'quality',
     patterns: [/안내를?\s*못/, /불친절/, /태도가/, /제대로\s*설명/, /알아서\s*하[라셔]/],
   },
   {
     id: 'legal',
     label: '외부 기관 신고·법적 대응 언급',
-    dept: '고객보호 담당',
+    team: 'legal',
     patterns: [/소비자원/, /방송통신위원회|방통위/, /민원/, /소송/, /법적으로/, /언론(에)?\s*제보/, /신고(하|할)/],
   },
 ]
@@ -142,7 +146,8 @@ export function extractThemes(call) {
         if (line && !evidence.includes(line.trim())) evidence.push(line.trim())
       }
     }
-    if (evidence.length > 0) out.push({ id: theme.id, label: theme.label, dept: theme.dept, evidence })
+    if (evidence.length > 0)
+      out.push({ id: theme.id, label: theme.label, team: theme.team, dept: teamName(theme.team), evidence })
   }
   return out
 }

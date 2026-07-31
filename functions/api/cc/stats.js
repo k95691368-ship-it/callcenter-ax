@@ -72,10 +72,18 @@ export async function onRequestGet(context) {
   }
 }
 
+// 레거시 폴백은 "누적 카운터 표가 아직 없다"는 신호에만 건다.
+// 예외를 가리지 않고 잡으면 D1 일시 장애(타임아웃·연결 끊김)에서도 폴백이 돌아,
+// 카운터에 접힌 과거 호출이 통째로 빠진 숫자가 나온다. 게다가 그 응답은 성공 경로라
+// 짧은 엣지 캐시가 붙어 장애가 끝난 뒤에도 몇 분간 틀린 수치가 재생된다.
+// 그럴 바에는 아무것도 보여주지 않는 편이 낫다(About은 ok:false면 블록을 그리지 않는다).
+const MISSING_TABLE_RE = /no such table:?\s*ai_call_totals/i
+
 async function readStats(env) {
   try {
     return await readPair(env, AGG_SQL, SINCE_SQL)
-  } catch {
+  } catch (err) {
+    if (!MISSING_TABLE_RE.test(String(err?.message ?? err))) throw err
     return await readPair(env, LEGACY_AGG_SQL, LEGACY_SINCE_SQL)
   }
 }

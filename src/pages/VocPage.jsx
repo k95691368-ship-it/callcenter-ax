@@ -9,6 +9,8 @@ import { NumbersVerifiedBadge } from '../components/VerifyBadge.jsx'
 import { buildVocCsv } from '../lib/vocCsv.js'
 import { detectVocAnomalies } from '../lib/vocAnomaly.js'
 import { aggregateThemes } from '../lib/vocThemes.js'
+import { estimateChurn } from '../lib/churnRisk.js'
+import { routeTicket } from '../lib/ticketDraft.js'
 
 // 감정 축은 순서형(긍정→강성)이므로 단일 색조의 순차 램프로 칠한다 (무지개 금지)
 const SENTIMENT_RAMP = { 긍정: '#cfe1fc', 중립: '#8fbafa', 부정: '#4593fc', 강성: '#1b64da' }
@@ -68,7 +70,24 @@ function TrendChart({ points }) {
 
 export default function VocPage() {
   const [myCalls, setMyCalls] = useState(loadMyCalls)
-  const calls = useMemo(() => [...SAMPLE_CALLS, ...myCalls], [myCalls])
+
+  // 대장의 '이탈위험·담당' 열이 늘 비어 있었다. 값이 없어서가 아니라, 전사가 있는데도
+  // 아무도 계산하지 않았기 때문이다 — 두 함수 모두 순수 규칙이라 AI 키 없이 즉시 나온다.
+  // 직접 분석한 통화는 서버가 계산한 값을 이미 갖고 있으므로 그대로 쓴다(재계산하지 않는다).
+  const calls = useMemo(
+    () =>
+      [...SAMPLE_CALLS, ...myCalls].map((c) => {
+        if (c.analysis?.churn || !c.transcript) return c
+        const churn = estimateChurn(c.transcript)
+        const route = routeTicket({
+          text: c.transcript,
+          category: c.analysis?.category,
+          churnScore: churn.score,
+        })
+        return { ...c, analysis: { ...c.analysis, churn, route } }
+      }),
+    [myCalls]
+  )
 
   // 축마다 filter를 걸면 카테고리 5회 + 감정 4회 + 날짜 D회로 같은 배열을 12번 넘게
   // 다시 훑는다(축이나 날짜가 늘 때마다 순회도 함께 늘어난다). 한 번의 루프에서 Map에
@@ -410,6 +429,8 @@ export default function VocPage() {
                 <th>제목</th>
                 <th>유형</th>
                 <th>감정</th>
+                <th>이탈위험</th>
+                <th>담당</th>
                 <th>시간</th>
                 <th>에스컬레이션</th>
               </tr>
@@ -434,6 +455,19 @@ export default function VocPage() {
                     <span className={`cat-badge ${CATEGORY_BADGE[c.analysis.category] || 'cat-etc'}`}>{c.analysis.category}</span>
                   </td>
                   <td>{c.analysis.sentiment}</td>
+                  <td>
+                    {Number.isFinite(c.analysis.churn?.score) ? (
+                      <span
+                        className={`churn-level churn-${c.analysis.churn.score >= 70 ? 'high' : c.analysis.churn.score >= 40 ? 'mid' : 'low'}`}
+                        title={(c.analysis.churn.signals || []).map((s) => s.label).join(', ') || '위험 신호 없음'}
+                      >
+                        {c.analysis.churn.score} · {c.analysis.churn.level}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td>{c.analysis.route?.team || '—'}</td>
                   <td>{typeof c.minutes === 'number' ? `${c.minutes}분` : '—'}</td>
                   <td>{c.analysis.escalate ? '⚠ 대기' : '—'}</td>
                 </tr>
@@ -444,6 +478,10 @@ export default function VocPage() {
         <p className="result-empty-sub">
           각 통화 제목을 누르면 전문이 열립니다. 통화를 <Link to="/analyze">통화 분석</Link>이나{' '}
           <Link to="/qa">Auto QA</Link>에 붙여넣어 직접 실험해보세요. 모든 통화는 가상 시나리오입니다.
+          <br />
+          이탈위험·담당은 전사에서 <strong>규칙으로 계산</strong>한 값입니다(AI 키 불필요). 위험 점수에
+          마우스를 올리면 어떤 신호가 잡혔는지 보입니다. 직접 분석한 통화는 분석 시점에 서버가 낸 값을
+          그대로 씁니다.
         </p>
       </section>
     </div>

@@ -160,7 +160,7 @@ export async function onRequestPost(context) {
       workersMaxTokens: 768,
     })
     const result = r.input
-    ensureContract(result, { arrays: ['suggestions', 'cited_ids'] })
+    ensureContract(result, { stringArrays: ['suggestions', 'cited_ids'] })
     logCall(context, { endpoint: 'assist', mode: r.engine === 'claude' ? 'live' : 'live-oss', startedAt, usage: r.usage })
     return json({
       demo: false,

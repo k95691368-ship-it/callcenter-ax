@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect } from 'react'
-import { Routes, Route, Link, useLocation } from 'react-router-dom'
+import { Routes, Route, Link, useLocation, useNavigationType } from 'react-router-dom'
 import Layout from './components/Layout.jsx'
 import HubPage from './pages/HubPage.jsx'
 import { scrollPageToTop } from './components/motion.js'
@@ -34,13 +34,16 @@ const NOT_FOUND_TITLE = '페이지를 찾을 수 없습니다 · 콜센터 AX �
 
 function useRouteChrome() {
   const { pathname } = useLocation()
+  const navType = useNavigationType()
   useEffect(() => {
     // /analyze/ 처럼 끝에 슬래시가 붙어도 라우트는 매칭된다. 정규화하지 않으면 정상
     // 페이지에 "찾을 수 없습니다" 제목이 붙는다.
     const key = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
     document.title = ROUTE_TITLES[key] || NOT_FOUND_TITLE
-    scrollPageToTop()
-  }, [pathname])
+    // 뒤로가기(POP)에서는 스크롤을 건드리지 않는다. 브라우저가 복원한 위치를 덮어쓰면
+    // 긴 페이지(VOC 대시보드·제작기)에서 읽던 자리를 매번 잃는다.
+    if (navType !== 'POP') scrollPageToTop()
+  }, [pathname, navType])
 }
 
 function NotFound() {

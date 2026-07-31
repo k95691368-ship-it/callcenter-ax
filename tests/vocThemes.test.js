@@ -7,6 +7,7 @@ import {
   aggregateThemes,
   compareThemes,
 } from '../src/lib/vocThemes.js'
+import { TEAMS, teamName } from '../src/lib/teams.js'
 import { SAMPLE_CALLS } from '../src/lib/sampleCalls.js'
 
 const call = (title, transcript, extra = {}) => ({ id: title, title, transcript, ...extra })
@@ -31,9 +32,11 @@ describe('원인 추출', () => {
     const speed = extractThemes(call('불만', '고객: 인터넷이 자꾸 끊겨요'))
     const bill = extractThemes(call('불만', '고객: 이번 달 요금이 왜 12만 원이 나왔죠?'))
     const agent = extractThemes(call('불만', '고객: 어떤 서류가 필요한지 안내를 못 해주신다고요?'))
-    expect(speed[0].dept).toBe('네트워크 운영팀')
-    expect(bill[0].dept).toBe('요금 정산팀')
-    expect(agent[0].dept).toBe('QA · 교육팀')
+    expect(speed[0].team).toBe('network')
+    expect(bill[0].team).toBe('billing')
+    expect(agent[0].team).toBe('quality')
+    // 부서 이름은 teams.js 한 곳에서 온다 — 티켓 배정과 같은 표를 쓴다
+    expect(speed[0].dept).toBe(teamName('network'))
   })
 
   it('왜 그렇게 분류됐는지 근거 문장을 함께 돌려준다', () => {
@@ -51,7 +54,11 @@ describe('원인 추출', () => {
   })
 
   it('모든 원인에 처리할 부서가 붙어 있다 (부서 없는 원인은 넘길 곳이 없다)', () => {
-    expect(THEMES.every((t) => t.dept && t.label && t.patterns.length > 0)).toBe(true)
+    expect(THEMES.every((t) => t.team && t.label && t.patterns.length > 0)).toBe(true)
+  })
+
+  it('원인이 가리키는 부서가 부서 표에 실제로 있다 (오타 하나로 배정이 사라지지 않게)', () => {
+    expect(THEMES.every((t) => TEAMS[t.team])).toBe(true)
   })
 })
 
@@ -86,7 +93,7 @@ describe('집계 — 원인·부서·재문의·미분류', () => {
   })
 
   it('부서별로 묶어 "어디로 넘길 일이 몇 건인지"를 만든다', () => {
-    const churn = agg.byDept.find((d) => d.dept === '해지 방어팀')
+    const churn = agg.byDept.find((d) => d.dept === teamName('retention'))
     expect(churn.count).toBeGreaterThan(0)
     expect(churn.themes.length).toBeGreaterThan(1) // 해지 의사 + 위약금이 한 부서로 모인다
   })

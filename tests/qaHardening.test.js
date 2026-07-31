@@ -14,7 +14,7 @@ import {
   hasSpeakerLabels,
   REQUIRED_MENTIONS,
   WITHHELD_NOTE,
-  QUOTE_GROUNDING_MIN,
+  QUOTE_VERBATIM_MIN,
   UNVERIFIED_QUOTE_NOTE,
 } from '../src/lib/qaRules.js'
 
@@ -67,7 +67,7 @@ describe('코멘트 인용 근거율 (comment_grounding)', () => {
     const c = '"다음 달 1일부터 적용되도록 처리해 드리겠습니다"로 처리 시점을 확정했습니다.'
     const r = auditComments([c], CALL)
     expect(r.comments[0]).toBe(c)
-    expect(r.grounding.scores[0]).toBeGreaterThanOrEqual(QUOTE_GROUNDING_MIN)
+    expect(r.grounding.scores[0]).toBeGreaterThanOrEqual(QUOTE_VERBATIM_MIN)
     expect(r.grounding.verified).toBe(1)
     expect(r.grounding.unverified).toBe(0)
     expect(r.grounding.flagged).toEqual([])
@@ -76,7 +76,7 @@ describe('코멘트 인용 근거율 (comment_grounding)', () => {
   it('통화에 없는 발화를 인용한 코멘트는 근거 미확인으로 표시된다', () => {
     const c = '"불편을 드려 진심으로 사과드립니다"라고 먼저 사과했습니다.'
     const r = auditComments([c], CALL)
-    expect(r.grounding.scores[0]).toBeLessThan(QUOTE_GROUNDING_MIN)
+    expect(r.grounding.scores[0]).toBeLessThan(QUOTE_VERBATIM_MIN)
     expect(r.grounding.flagged).toEqual([0])
     expect(r.comments[0]).toContain(UNVERIFIED_QUOTE_NOTE.trim())
     expect(r.comments[0]).toContain(c)

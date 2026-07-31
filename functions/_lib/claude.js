@@ -35,12 +35,15 @@ export function hasApiKey(env) {
 // 호출부는 응답 길이만 보고 상한을 잡으므로(6000자 원문을 그대로 되돌려줘야 하는
 // diarize가 6144) thinking이 더해지는 순간 상시 절단됐고, 절단은 ladder에서 오픈소스
 // 재호출로 이어져 Claude 토큰 요금과 Workers AI 비용을 함께 물었다.
-// max_tokens는 상한일 뿐 실제 생성량만 과금되므로, 여유를 두는 쪽이 항상 싸다.
+// max_tokens는 상한일 뿐 실제 생성량만 과금되므로, 상한을 넉넉히 두는 것 자체는 비용을
+// 늘리지 않는다. (반대로 "잘렸으니 더 크게 다시 부르는" 재시도는 실제 생성을 늘리므로
+// 비용을 늘린다 — 아래 재시도 조건이 그래서 보수적이다.)
 const DEFAULT_MAX_TOKENS = 8192
 const THINKING_HEADROOM = 8192
 const MIN_BUDGET = 8192
-// 한 번의 시도 타임아웃(40초) 안에 끝날 수 없을 만큼 큰 상한은 의미가 없어 여기서 자른다.
-const MAX_BUDGET = 24000
+// 비스트리밍 단발 요청(fetch + res.json())으로 40초 안에 받아낼 수 있는 현실적 상한.
+// 이보다 크게 잡아도 응답을 기다리다 AbortError로 끝나므로 상한이 아니라 함정이 된다.
+const MAX_BUDGET = 16000
 
 // ── 시간 예산 ────────────────────────────────────────────────────────────────
 const ATTEMPT_TIMEOUT_MS = 40000
@@ -167,15 +170,30 @@ export async function callClaudeTool(env, { system, user, tool, maxTokens = DEFA
   if (!apiKey) throw fail('CLAUDE_API_KEY가 설정되지 않았습니다.', 'no_key')
 
   const budget = budgetFor(maxTokens)
+  const attemptStartedAt = Date.now()
   let data = await requestJson(apiKey, { system, user, tool, budget, deadlineAt })
 
-  // 절단을 곧장 실패로 넘기면 ladder가 오픈소스를 재호출해 Claude 토큰 요금과
-  // Workers AI 비용을 동시에 내고, 사용자는 폴백 결과를 본다. 상한을 키워 한 번 더
-  // 시도해 이미 지불한 유료 호출을 살린다.
-  if (data.stop_reason === 'max_tokens') {
+  // 절단됐을 때 상한을 키워 한 번 더 시도할 수 있다. 다만 이 재시도는 공짜가 아니다 —
+  // 절단은 "모델이 더 쓰려 했다"는 신호이므로 2차 시도는 1차보다 더 많이 생성하고,
+  // 그만큼 과금된다. 그래서 두 조건을 모두 만족할 때만 건다.
+  //   ① 한 번의 시도 타임아웃(40초)이 통째로 남아 있을 것
+  //      — 8초 같은 짧은 여유로 걸면 재시도는 AbortError로 끝나고, 그러면 이미 돈을 낸
+  //        1차 응답까지 버려진 채 "지연" 오류만 남는다. 최악의 결과다.
+  //   ② 1차 시도가 시간이 아니라 상한 때문에 잘렸을 것
+  //      — 1차가 이미 오래 걸렸다면 상한을 키워도 시간 안에 끝나지 않는다.
+  const truncated = () => data.stop_reason === 'max_tokens'
+  if (truncated()) {
     const bigger = Math.min(MAX_BUDGET, budget * 2)
-    if (bigger > budget && remainingMs(deadlineAt) >= MIN_RETRY_WINDOW_MS) {
-      data = await requestJson(apiKey, { system, user, tool, budget: bigger, deadlineAt })
+    const firstAttemptMs = Date.now() - attemptStartedAt
+    const roomToRetry = remainingMs(deadlineAt) >= ATTEMPT_TIMEOUT_MS
+    const wasFastEnough = firstAttemptMs <= ATTEMPT_TIMEOUT_MS / 2
+    if (bigger > budget && roomToRetry && wasFastEnough) {
+      try {
+        data = await requestJson(apiKey, { system, user, tool, budget: bigger, deadlineAt })
+      } catch {
+        // 재시도가 실패해도 1차 응답을 버리지 않는다. 아래 max_tokens 분기가
+        // "너무 길어 중단됐다"는 정확한 원인을 사용자에게 전한다.
+      }
     }
   }
 

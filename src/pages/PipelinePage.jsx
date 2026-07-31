@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { OssLlmNote, UsageNote, WorkersAiNote, ResultNotice } from '../components/ResultMeta.jsx'
+import AnalysisLayers from '../components/AnalysisLayers.jsx'
 import { applyLexicon } from '../lib/domainLexicon.js'
 import { saveMyCall } from '../lib/myCalls.js'
 import { MAX_RULE_SCORE } from '../lib/qaRules.js'
@@ -25,13 +26,6 @@ const STEPS = [
   { id: 'voc', title: '⑥ VOC 누적', desc: '대시보드에 분석 결과 합산' },
 ]
 
-// 위험 구간을 색으로 구분한다 (숫자만 있으면 급한 건인지 한눈에 안 보인다)
-function churnTone(score) {
-  if (score >= 70) return 'high'
-  if (score >= 40) return 'mid'
-  return 'low'
-}
-
 export default function PipelinePage() {
   const [stage, setStage] = useState(-1) // -1 대기, 0~5 진행, 6 완료
   const [error, setError] = useState('')
@@ -49,21 +43,6 @@ export default function PipelinePage() {
   const copyTimerRef = useRef(null)
   useEffect(() => () => clearTimeout(copyTimerRef.current), [])
 
-  // 티켓 초안은 별도로 복사한다 — 담당 부서에 넘길 때 리포트 전체가 필요하지 않다
-  const [ticketCopied, setTicketCopied] = useState(false)
-  const ticketTimerRef = useRef(null)
-  useEffect(() => () => clearTimeout(ticketTimerRef.current), [])
-  async function copyTicket() {
-    if (!analysis?.ticket) return
-    try {
-      await navigator.clipboard.writeText(analysis.ticket.text)
-      setTicketCopied(true)
-      clearTimeout(ticketTimerRef.current)
-      ticketTimerRef.current = setTimeout(() => setTicketCopied(false), 1500)
-    } catch {
-      setError('클립보드 복사에 실패했습니다.')
-    }
-  }
   async function copyReport() {
     try {
       await navigator.clipboard.writeText(buildPipelineReport({ stt, lex, dia, analysis, qa, stageErrors }))
@@ -295,88 +274,9 @@ export default function PipelinePage() {
                   ))}
                 </ul>
 
-                {/* 이탈 위험 — 규칙 신호로 계산되므로 AI 키가 없어도 실제 값이 나온다.
-                    점수만 보여주면 믿을 근거가 없으므로 신호와 인용 발화를 함께 노출한다. */}
-                {analysis.churn && Number.isFinite(analysis.churn.score) && (
-                  <div className="churn-box">
-                    <div className="churn-head">
-                      <span className={`churn-level churn-${churnTone(analysis.churn.score)}`}>
-                        이탈 위험 {analysis.churn.score}점 · {analysis.churn.level}
-                      </span>
-                      <span className="usage-note">
-                        {analysis.churn.action}
-                        {analysis.churn.estimated
-                          ? ' · 규칙 기반 실측'
-                          : analysis.churn.adjusted
-                            ? ' · 규칙 신호로 보정됨'
-                            : ''}
-                      </span>
-                    </div>
-                    {analysis.churn.signals?.length > 0 && (
-                      <ul className="plain-list churn-signals">
-                        {analysis.churn.signals.map((sig) => (
-                          <li key={sig.id}>
-                            <strong>{sig.label}</strong>
-                            {sig.evidence && <span className="churn-quote"> "{sig.evidence}"</span>}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {analysis.churn.retentionSignals?.length > 0 && (
-                      <p className="result-empty-sub">
-                        완화 신호: {analysis.churn.retentionSignals.map((s) => s.label).join(', ')}
-                      </p>
-                    )}
-                    {analysis.churn.speakerLabeled === false && (
-                      <p className="result-empty-sub">
-                        화자 라벨이 없어 전사 전체를 훑었습니다 — 상담사 발화가 신호로 잡혔을 수 있습니다.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* 대화 지표 — 화자 라벨이 있을 때만 계산된다(없으면 표시하지 않는다) */}
-                {analysis.metrics && (
-                  <div className="metrics-box">
-                    <div className="stat-row">
-                      <div className="stat-tile">
-                        <span className="stat-label">발화 비율 (상담사/고객)</span>
-                        <span className="stat-value">
-                          {analysis.metrics.agentCharRatio}% / {analysis.metrics.customerCharRatio}%
-                        </span>
-                      </div>
-                      <div className="stat-tile">
-                        <span className="stat-label">대화 턴</span>
-                        <span className="stat-value">{analysis.metrics.turns}회</span>
-                      </div>
-                      <div className="stat-tile">
-                        <span className="stat-label">확인 질문 / 공감</span>
-                        <span className="stat-value">
-                          {analysis.metrics.questionTurns} / {analysis.metrics.empathyTurns}턴
-                        </span>
-                      </div>
-                    </div>
-                    {(analysis.metrics_diagnosis || []).map((d) => (
-                      <p key={d.id} className={`metric-diag metric-${d.level}`}>
-                        <strong>{d.label}</strong> — {d.detail}
-                      </p>
-                    ))}
-                  </div>
-                )}
-
-                {/* 티켓 초안 — 분석에서 끝내지 않고 "다음 사람이 쓸 문서"까지 만든다 */}
-                {analysis.ticket && (
-                  <details className="custom-docs ticket-draft">
-                    <summary>
-                      🎫 에스컬레이션 티켓 초안 — {analysis.ticket.route.priority}{' '}
-                      {analysis.ticket.route.team} ({analysis.ticket.route.sla})
-                    </summary>
-                    <pre className="ticket-text">{analysis.ticket.text}</pre>
-                    <button type="button" className="btn-ghost" onClick={copyTicket}>
-                      {ticketCopied ? '✓ 티켓 초안 복사됨' : '티켓 초안 복사'}
-                    </button>
-                  </details>
-                )}
+                {/* 이탈 위험 · 대화 지표 · 티켓 초안 — 통화 분석 화면과 같은 컴포넌트로 그린다.
+                    두 화면이 각자 렌더를 들고 있으면 한쪽만 고쳐져 어긋난다. */}
+                <AnalysisLayers analysis={analysis} onError={setError} />
               </div>
             )}
 
