@@ -1,6 +1,6 @@
 import { json, NO_STORE } from '../../_lib/http.js'
 import { hasApiKey } from '../../_lib/claude.js'
-import { checkRateLimit } from '../../_lib/rateLimit.js'
+import { checkDailyBudget, remainingUsd, DAILY_BUDGET_USD } from '../../_lib/budget.js'
 
 // 운영 헬스체크 — 바인딩·키 상태를 공개한다 (비밀값 자체는 노출하지 않음).
 // About 페이지가 이 값으로 "지금 어떤 엔진이 살아있는지"를 실시간 표시한다.
@@ -49,22 +49,24 @@ export async function onRequestGet(context) {
   const workersAi = Boolean(env.AI)
   const vectorize = Boolean(env.VECTORIZE)
 
-  const claudeUsed = claude ? await bucketUsage(env, 'cc:claude:daily') : null
+  // 유료(Claude) 상한은 회수가 아니라 금액이다 — 호출마다 비용이 몇 배씩 다르므로
+  // "몇 회 남았다"는 실제로 얼마나 더 쓸 수 있는지를 알려주지 못한다.
+  const budget = claude ? await checkDailyBudget(env) : null
+  const claudeLeft = budget?.available ? remainingUsd(budget) : null
   const dailyUsed = await bucketUsage(env, 'cc:daily:all')
-  const CLAUDE_CAP = 150
   const DAILY_CAP = 300
-  const claudeLeft = claudeUsed == null ? null : Math.max(0, CLAUDE_CAP - claudeUsed)
   const dailyLeft = dailyUsed == null ? null : Math.max(0, DAILY_CAP - dailyUsed)
 
   // LLM 계열 기능이 지금 어느 경로로 나가는지
-  const llmState = !claude && !workersAi ? 'off' : dailyLeft === 0 ? 'off' : claude && claudeLeft > 0 ? 'ready' : 'degraded'
+  const claudeReady = claude && (budget ? budget.ok : true)
+  const llmState = !claude && !workersAi ? 'off' : dailyLeft === 0 ? 'off' : claudeReady ? 'ready' : 'degraded'
   const llmDetail =
     llmState === 'off'
       ? dailyLeft === 0
-        ? '오늘의 공유 예산이 소진되어 규칙 데모로 응답합니다.'
+        ? '오늘의 공유 호출 한도가 소진되어 규칙 데모로 응답합니다.'
         : 'AI 엔진이 연결되어 있지 않아 규칙 데모로 응답합니다.'
       : llmState === 'ready'
-        ? `Claude Opus 5로 응답합니다 (오늘 남은 유료 호출 ${claudeLeft}회).`
+        ? `Claude Opus 5로 응답합니다${claudeLeft == null ? '' : ` (오늘 남은 유료 예산 약 $${claudeLeft.toFixed(2)})`}.`
         : claude
           ? '유료 예산이 소진되어 오픈소스 LLM으로 응답합니다.'
           : '오픈소스 LLM(Llama 3.3 70B)으로 응답합니다.'
@@ -79,8 +81,10 @@ export async function onRequestGet(context) {
       llm_engine: claude ? 'claude-opus-5' : workersAi ? 'llama-3.3-70b (오픈소스)' : 'demo',
       // 남은 예산 — 소진되면 화면이 "라이브"라고 말하면 안 된다
       budget: {
-        claude_daily_cap: CLAUDE_CAP,
-        claude_daily_left: claudeLeft,
+        // 남은 유료 예산(USD). 예전에는 '남은 호출 수'였는데, 호출당 비용이
+        // 몇 배씩 달라 그 숫자로는 얼마나 더 쓸 수 있는지 알 수 없었다.
+        claude_budget_left_usd: claudeLeft,
+        claude_budget_limit_usd: DAILY_BUDGET_USD,
         shared_daily_cap: DAILY_CAP,
         shared_daily_left: dailyLeft,
       },

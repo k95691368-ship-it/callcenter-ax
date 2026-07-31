@@ -5,9 +5,14 @@ import { onRequestGet } from '../functions/api/cc/health.js'
 // 특히 예산이 소진된 상태에서 엔진 배지는 여전히 claude-opus-5인데 응답은 데모로 나간다 —
 // 그 차이를 시스템이 스스로 알고 말하지 못하면 화면이 거짓을 말하게 된다.
 
-const db = (counts = {}) => ({
-  prepare: () => ({
-    bind: (bucket) => ({ first: async () => ({ count: counts[bucket] ?? 0 }) }),
+// spend: 최근 24시간 유료(Claude) 토큰 합계 — 유료 상한이 회수에서 금액으로 바뀌면서
+// "소진 상태"를 흉내내려면 버킷 카운트가 아니라 토큰 합계를 돌려줘야 한다.
+const db = (counts = {}, spend = null) => ({
+  prepare: (sql = '') => ({
+    bind: (bucket) => ({
+      first: async () =>
+        /input_tokens/.test(sql) ? spend || { input_tokens: 0, output_tokens: 0 } : { count: counts[bucket] ?? 0 },
+    }),
     first: async () => ({ ok: 1 }),
   }),
 })
@@ -37,19 +42,22 @@ describe('자가 점검 (health capabilities)', () => {
   })
 
   it('유료 예산이 소진되면 엔진 배지와 무관하게 degraded로 말한다', async () => {
-    const d = await get({ AI: {}, DB: db({ 'cc:claude:daily': 150 }), CLAUDE_API_KEY: 'sk-ant-x' })
+    // 유료 상한이 회수에서 금액으로 바뀌었다 — 소진 상태는 토큰 합계로 흉내낸다
+    const d = await get({ AI: {}, DB: db({}, { input_tokens: 700_000, output_tokens: 200_000 }), CLAUDE_API_KEY: 'sk-ant-x' })
     // 배지는 여전히 claude를 가리키지만
     expect(d.llm_engine).toBe('claude-opus-5')
     // 자가 점검은 실제 경로를 말한다
     expect(cap(d, 'llm').state).toBe('degraded')
     expect(cap(d, 'llm').detail).toContain('오픈소스')
-    expect(d.budget.claude_daily_left).toBe(0)
+    expect(d.budget.claude_budget_left_usd).toBe(0)
   })
 
   it('공유 예산이 소진되면 LLM은 off다 (데모로 나간다)', async () => {
     const d = await get({ AI: {}, DB: db({ 'cc:daily:all': 300 }), CLAUDE_API_KEY: 'sk-ant-x' })
     expect(cap(d, 'llm').state).toBe('off')
-    expect(cap(d, 'llm').detail).toContain('예산')
+    // 공유 상한은 '회수' 한도이고 유료 상한만 '예산'(금액)이다 — 둘을 같은 말로 부르면
+    // 어느 쪽에 걸렸는지 알 수 없어 문구를 갈랐다.
+    expect(cap(d, 'llm').detail).toContain('한도')
     expect(d.budget.shared_daily_left).toBe(0)
   })
 
@@ -89,7 +97,7 @@ describe('자가 점검 (health capabilities)', () => {
   it('D1이 없어도 응답이 깨지지 않는다', async () => {
     const d = await get({ AI: {} })
     expect(d.ok).toBe(true)
-    expect(d.budget.claude_daily_left).toBeNull()
+    expect(d.budget.claude_budget_left_usd).toBeNull()
     expect(cap(d, 'telemetry').state).toBe('off')
   })
 

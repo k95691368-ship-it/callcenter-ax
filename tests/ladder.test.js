@@ -69,26 +69,61 @@ describe('runLlmLadder', () => {
   })
 })
 
-describe('Claude 일일 예산 칸막이', () => {
-  // 상한이 차서 조건부 INSERT가 아무 행도 넣지 못한 상태(meta.changes = 0)를 흉내내는 D1 스텁
-  // — Claude를 건너뛰고 오픈소스로 가야 한다
-  const fullBucketDb = {
+describe('Claude 일일 예산 칸막이 (금액 기준)', () => {
+  // 상한 기준이 "회수"에서 "금액"으로 바뀌었다. 호출마다 비용이 몇 배씩 다르므로
+  // 회수 상한으로는 "N회 안에서는 안전하다"가 성립하지 않기 때문이다.
+  // 아래 스텁은 최근 24시간 토큰 합계를 돌려주는 ai_calls 조회를 흉내낸다.
+  const dbWithSpend = (input, output) => ({
     prepare: () => ({
-      bind: () => ({ run: async () => ({ meta: { changes: 0 } }), first: async () => ({ count: 999 }) }),
-      run: async () => ({ meta: { changes: 0 } }),
+      bind: () => ({ first: async () => ({ input_tokens: input, output_tokens: output }) }),
+      first: async () => ({ input_tokens: input, output_tokens: output }),
     }),
-  }
+  })
+  // 입력 70만 + 출력 20만 토큰 ≈ $8.5 — 상한 $3을 넘는다
+  const spentOver = dbWithSpend(700_000, 200_000)
+  const spentLittle = dbWithSpend(1_000, 500)
+  const claudeOk = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ content: [{ type: 'tool_use', input: { a: 'ok' } }], usage: { input_tokens: 1, output_tokens: 1 } }),
+  })
 
   it('예산 소진 시 Claude API를 호출하지 않고 오픈소스가 답한다', async () => {
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
-    const r = await runLlmLadder({ CLAUDE_API_KEY: 'k', AI: workersOk, DB: fullBucketDb }, OPTS)
+    const r = await runLlmLadder({ CLAUDE_API_KEY: 'k', AI: workersOk, DB: spentOver }, OPTS)
     expect(r.engine).toBe('oss')
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  it('예산이 남아 있으면 Claude를 그대로 쓴다', async () => {
+    vi.stubGlobal('fetch', claudeOk)
+    const r = await runLlmLadder({ CLAUDE_API_KEY: 'k', AI: workersOk, DB: spentLittle }, OPTS)
+    expect(r.engine).toBe('claude')
+  })
+
   it('예산 소진 + 오픈소스도 없으면 예산 안내 오류를 던진다', async () => {
     vi.stubGlobal('fetch', vi.fn())
-    await expect(runLlmLadder({ CLAUDE_API_KEY: 'k', DB: fullBucketDb }, OPTS)).rejects.toThrow(/예산/)
+    await expect(runLlmLadder({ CLAUDE_API_KEY: 'k', DB: spentOver }, OPTS)).rejects.toThrow(/예산/)
+  })
+
+  it('D1 조회가 실패하면 유료 호출을 건너뛴다 (상한이 사라져 무제한 과금이 되는 쪽이 더 나쁘다)', async () => {
+    const brokenDb = {
+      prepare: () => ({
+        bind: () => ({ first: async () => { throw new Error('D1 down') } }),
+      }),
+    }
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    const r = await runLlmLadder({ CLAUDE_API_KEY: 'k', AI: workersOk, DB: brokenDb }, OPTS)
+    expect(r.engine).toBe('oss')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('D1 바인딩이 아예 없으면(로컬 개발) 유료 경로를 막지 않는다', async () => {
+    // 조회 실패와 설정 부재는 다르다 — 여기서 막으면 D1 없는 환경에서 Claude가 통째로 꺼진다
+    vi.stubGlobal('fetch', claudeOk)
+    const r = await runLlmLadder({ CLAUDE_API_KEY: 'k', AI: workersOk }, OPTS)
+    expect(r.engine).toBe('claude')
   })
 })

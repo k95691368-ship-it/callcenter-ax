@@ -1,10 +1,16 @@
 import { callClaudeTool, hasApiKey } from './claude.js'
 import { callWorkersJson, hasWorkersAi } from './workersLlm.js'
-import { checkRateLimit } from './rateLimit.js'
+import { checkDailyBudget } from './budget.js'
 
-// 유료 Claude 호출만의 일일 상한 — 소진되면 서비스를 멈추는 게 아니라
+// 유료 Claude 호출의 일일 상한 — 소진되면 서비스를 멈추는 게 아니라
 // 오픈소스 LLM으로 자연 강등되어 과금 폭주를 구조적으로 차단한다.
-const CLAUDE_DAILY_CAP = 150
+//
+// 기준을 "회수"에서 "금액"으로 바꿨다.
+// 예전에는 하루 150"회"였다. 그런데 호출마다 비용이 제각각이다 — 전사 8,000자를 통째로
+// 넣는 통화 분석과 집계 수치만 넣는 VOC 리포트는 실제 지출이 몇 배 차이다.
+// 회수 상한은 그 차이를 반영하지 못하므로 "150회 안에서는 안전하다"가 성립하지 않는다.
+// 이미 호출마다 토큰을 기록하고 있으니(ai_calls) 그 합계로 실제 지출을 계산해 막는다.
+// 강등 동작은 그대로다 — 상한에 걸려도 오픈소스 층이 답한다.
 
 // 사다리 전체의 데드라인. 엣지 실행 한도(약 100초)를 넘기면 클라이언트는 524를 받고
 // 그 요청의 logCall이 실행되지 않아 텔레메트리에 흔적조차 남지 않는다. 예전 최악 경로는
@@ -42,9 +48,10 @@ export async function runLlmLadder(env, { system, user, tool, maxTokens, workers
   const deadlineAt = Date.now() + LADDER_DEADLINE_MS
   let claudeErr = null
   if (hasApiKey(env)) {
-    // 예산 버킷은 fail-open이면 안 된다 — D1 장애 때 상한이 사라져 무제한 과금이 된다.
+    // 예산 검사는 fail-open이면 안 된다 — D1 장애 때 상한이 사라져 무제한 과금이 된다.
     // 검사할 수 없으면 유료 호출을 건너뛰고 오픈소스 층으로 내려간다.
-    if (await checkRateLimit(env, 'cc:claude:daily', CLAUDE_DAILY_CAP, 86400, { failOpen: false })) {
+    const budget = await checkDailyBudget(env, undefined, { failOpen: false })
+    if (budget.ok) {
       try {
         const r = await callClaudeTool(env, { system, user, tool, maxTokens, deadlineAt })
         return { input: r.input, usage: r.usage, model: null, engine: 'claude' }

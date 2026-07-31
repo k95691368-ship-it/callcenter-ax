@@ -231,9 +231,10 @@ export default function AboutPage() {
             </ul>
             {health.budget?.shared_daily_left != null && (
               <p className="result-empty-sub">
-                오늘 남은 예산 — 유료 호출 {health.budget.claude_daily_left ?? '—'}/
-                {health.budget.claude_daily_cap}회 · 공유 {health.budget.shared_daily_left}/
-                {health.budget.shared_daily_cap}회
+                오늘 남은 예산 — 유료 AI $
+                {health.budget.claude_budget_left_usd?.toFixed(2) ?? '—'}/$
+                {health.budget.claude_budget_limit_usd} · 공유 호출{' '}
+                {health.budget.shared_daily_left}/{health.budget.shared_daily_cap}회
               </p>
             )}
           </div>
