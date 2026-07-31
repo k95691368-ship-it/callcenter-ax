@@ -259,6 +259,30 @@ export default function AboutPage() {
             )}
             <span className="usage-note">지금 이 순간의 실제 수치 (/api/cc/stats)</span>
           </div>
+
+          {/* 폴백을 한 덩어리로 세면 "몇 번 실패했다"까지만 알 수 있다. 고칠 수 있는 실패
+              (우리 상한이 작았다)와 고칠 수 없는 실패(공급자 거절)를 구분해야 다음에
+              무엇을 할지가 정해진다. 시스템이 자기 실패를 분류해 말하는 자리다. */}
+          {stats.summary.failures?.length > 0 && (
+            <div className="failure-breakdown">
+              <p className="about-note">
+                폴백 사유 분해 — 실패를 숨기지 않는 것에서 한 걸음 더, 왜 실패했는지까지 남깁니다.
+                {stats.summary.classifiedFailures === 0 &&
+                  ' (아래 "기타 실패"는 사유 기록을 넣기 전의 기록입니다)'}
+              </p>
+              <div className="chip-row">
+                {stats.summary.failures.map((f) => (
+                  <span
+                    key={f.mode}
+                    className={`cat-badge ${f.classified ? 'cat-quality' : 'cat-etc'}`}
+                    title={f.classified ? `텔레메트리 mode=${f.mode}` : '사유가 기록되지 않은 옛 실패'}
+                  >
+                    {f.label} {f.calls}회
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="req-table-wrap">
             <table className="req-table">
               <thead>

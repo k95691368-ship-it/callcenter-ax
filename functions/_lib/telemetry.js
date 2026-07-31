@@ -32,6 +32,27 @@ const ROLLUP_SQL = `INSERT INTO ai_call_totals (endpoint, mode, calls, latency_s
 
 const DELETE_SQL = 'DELETE FROM ai_calls WHERE created_at < ?'
 
+// 폴백 사유 — 시스템이 "왜 실패했는지"를 알면서도 기록하지 않던 것을 남긴다.
+//
+// claude.js는 거절(refusal)·절단(max_tokens)·데드라인·HTTP 오류를 err.code로 구분해
+// 던지는데, 엔드포인트의 catch는 그걸 전부 'fallback' 한 단어로 뭉개 기록했다.
+// 그래서 운영 지표에는 "폴백 8회"만 남고, 그 8회가 안전 정책 거절인지 우리 상한이
+// 작아서 잘린 것인지 알 방법이 없었다 — 고칠 수 있는 실패와 고칠 수 없는 실패를
+// 구분하지 못한다는 뜻이다.
+//
+// mode는 D1에 그대로 저장되고 화면 라벨의 키가 되므로 짧은 소문자·하이픈만 쓴다
+// (tests/privacy.test.js가 이 형태를 고정한다).
+const KNOWN_FAILURES = new Set(['refusal', 'max-tokens', 'deadline', 'timeout', 'http', 'no-key', 'contract'])
+
+export function failureMode(err) {
+  const raw = String(err?.code || '').replace(/_/g, '-')
+  if (KNOWN_FAILURES.has(raw)) return `fallback-${raw}`
+  // 계약 검증 실패는 code가 없다 — 메시지로 구분되는 유일한 유형이라 여기서 알아본다.
+  if (/응답에서 결과를 찾을 수 없|필드가 없|형식이 올바르지/.test(String(err?.message || '')))
+    return 'fallback-contract'
+  return 'fallback'
+}
+
 export function logCall(context, { endpoint, mode, startedAt, usage, findingsCount }) {
   const env = context?.env
   if (!env?.DB) return

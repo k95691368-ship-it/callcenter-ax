@@ -3,7 +3,7 @@ import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
 import { runLlmLadder } from '../../_lib/ladder.js'
-import { logCall } from '../../_lib/telemetry.js'
+import { logCall, failureMode } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { preservesOriginal, MAX_DIARIZE_CER } from '../../../src/lib/diarizeGuard.js'
 import { computeCallMetrics, diagnoseCallMetrics } from '../../../src/lib/callMetrics.js'
@@ -115,7 +115,7 @@ export async function onRequestPost(context) {
         : undefined,
     })
   } catch (err) {
-    logCall(context, { endpoint: 'diarize', mode: 'fallback', startedAt })
+    logCall(context, { endpoint: 'diarize', mode: failureMode(err), startedAt })
     return json({ demo: true, formatted: transcript, ...truncation, notice: `일시적인 AI 혼잡으로 원문을 유지합니다. (${err.message})` })
   }
 }

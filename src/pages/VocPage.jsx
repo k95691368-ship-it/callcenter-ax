@@ -9,6 +9,7 @@ import { NumbersVerifiedBadge } from '../components/VerifyBadge.jsx'
 import { buildVocCsv } from '../lib/vocCsv.js'
 import { detectVocAnomalies } from '../lib/vocAnomaly.js'
 import { aggregateThemes } from '../lib/vocThemes.js'
+import { selfCheck } from '../lib/selfCheck.js'
 import { estimateChurn } from '../lib/churnRisk.js'
 import { routeTicket } from '../lib/ticketDraft.js'
 
@@ -132,6 +133,8 @@ export default function VocPage() {
   // 넘길 부서가 다르므로, 집계 단위가 원인이어야 조직이 움직인다.
   const themes = useMemo(() => aggregateThemes(calls), [calls])
   const maxTheme = Math.max(...themes.themes.map((t) => t.count), 1)
+  // 사각지대 자가 점검 — 못 잡은 통화에서 사전 후보를 스스로 뽑는다
+  const check = useMemo(() => selfCheck(calls), [calls])
 
   // AI 인사이트 리포트 — 집계 수치만 서버로 보낸다 (통화 원문 미전송)
   const [report, setReport] = useState(null)
@@ -288,6 +291,58 @@ export default function VocPage() {
               </>
             )}
           </p>
+        </section>
+
+        {/* 자가 점검 — 규칙 기반 시스템의 진짜 위험은 틀리는 것이 아니라 모르는 채로 조용한 것이다 */}
+        <section className="voc-card voc-card-wide">
+          <h2>
+            자가 점검 — 이 사전이 지금 못 하고 있는 것
+            <span className="voc-card-sub">(분류기가 아니라, 분류기의 사각지대를 찾는 층)</span>
+          </h2>
+          <div className="stat-row">
+            <div className="stat-tile">
+              <span className="stat-label">원인이 잡힌 통화</span>
+              <span className="stat-value">{Math.round(check.taggedRate * 100)}%</span>
+            </div>
+            <div className="stat-tile">
+              <span className="stat-label">담당 부서 미정</span>
+              <span className="stat-value">{check.routedDefault}건</span>
+            </div>
+            <div className="stat-tile">
+              <span className="stat-label">재문의 비율</span>
+              <span className="stat-value">{Math.round(check.repeatRate * 100)}%</span>
+            </div>
+            <div className="stat-tile">
+              <span className="stat-label">가려진 개인정보</span>
+              <span className="stat-value">{check.piiFound}건</span>
+            </div>
+          </div>
+          <ul className="plain-list">
+            {check.gaps.map((g) => (
+              <li key={g.id}>
+                <strong>{g.level === 'warn' ? '⚠ ' : '✓ '}{g.label}</strong> — {g.detail}
+              </li>
+            ))}
+          </ul>
+          {check.suggestions.length > 0 && (
+            <div className="lexicon-box">
+              <h3>사전에 추가할 후보</h3>
+              <p className="result-empty-sub">
+                분류하지 못한 통화에서 반복된 표현입니다. 사람이 판단할 수 있도록 근거 문장을 함께
+                보여줍니다 — 승인할 것만 <code>src/lib/vocThemes.js</code>의 원인 사전에 넣으면
+                다음 집계부터 잡힙니다.
+              </p>
+              {check.suggestions.map((s) => (
+                <div className="theme-row" key={s.term}>
+                  <div className="theme-head">
+                    <strong>{s.term}</strong>
+                    <span className="theme-count">{s.count}건</span>
+                  </div>
+                  {s.examples[0] && <p className="theme-evi">“{s.examples[0]}”</p>}
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {themes.repeats.length > 0 && (

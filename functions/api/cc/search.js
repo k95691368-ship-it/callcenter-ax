@@ -3,7 +3,7 @@ import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
 import { runLlmLadder } from '../../_lib/ladder.js'
-import { logCall } from '../../_lib/telemetry.js'
+import { logCall, failureMode } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import {
   FAQ_DOCS,
@@ -377,7 +377,7 @@ export async function onRequestPost(context) {
     })
   } catch (err) {
     const t = templateAnswer(results)
-    logCall(context, { endpoint: 'search', mode: 'fallback', startedAt })
+    logCall(context, { endpoint: 'search', mode: failureMode(err), startedAt })
     return json({
       demo: true,
       mode,

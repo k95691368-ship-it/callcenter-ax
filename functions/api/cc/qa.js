@@ -3,7 +3,7 @@ import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
 import { runLlmLadder } from '../../_lib/ladder.js'
-import { logCall } from '../../_lib/telemetry.js'
+import { logCall, failureMode } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import {
   checkMentions,
@@ -240,7 +240,7 @@ export async function onRequestPost(context) {
     })
   } catch (err) {
     const demo = demoLlmReview(mentions, findings)
-    logCall(context, { endpoint: 'qa', mode: 'fallback', startedAt, findingsCount: findings.length })
+    logCall(context, { endpoint: 'qa', mode: failureMode(err), startedAt, findingsCount: findings.length })
     return respond(null, {
       demo: true,
       comments: demo.comments,
