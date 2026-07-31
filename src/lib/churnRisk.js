@@ -156,11 +156,19 @@ export function applyChurnBand(llmScore, text) {
   const width = rule.hits.length >= 3 ? 15 : rule.hits.length >= 1 ? 25 : 40
   const low = clamp(rule.score - width, 0, 100)
   const high = clamp(rule.score + width, 0, 100)
-  const raw = clamp(Math.round(Number(llmScore) || 0), 0, 100)
-  const score = clamp(raw, low, high)
+  // LLM이 점수를 **주지 않은 것**과 0점이라고 **말한 것**은 다르다.
+  // Number(x)||0으로 뭉개면 값이 빠졌을 때 0점으로 간주돼 밴드 하한(low)으로 끌려간다 —
+  // 규칙이 65점(해지 의사 + 반복 장애 + 법적 대응)이라고 본 통화가 50점 '중간'으로
+  // 조용히 강등되고, 화면에는 그것이 추정이라는 표시조차 없었다.
+  // 값이 없으면 규칙 점수를 그대로 쓰고 추정이라고 밝힌다.
+  const given = Number.isFinite(Number(llmScore)) && llmScore !== null && llmScore !== ''
+  const raw = given ? clamp(Math.round(Number(llmScore)), 0, 100) : null
+  const score = raw == null ? rule.score : clamp(raw, low, high)
   return {
     score,
-    adjusted: score !== raw,
+    // 규칙 점수로 대신한 경우 — 화면이 '추정'으로 표시할 근거다
+    estimated: raw == null,
+    adjusted: raw != null && score !== raw,
     llmScore: raw,
     ruleScore: rule.score,
     band: { low, high },

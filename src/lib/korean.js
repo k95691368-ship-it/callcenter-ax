@@ -25,7 +25,16 @@ const ENDINGS = [
   '합니다', '습니다', '입니다', '했어요', '해주세요', '주세요', '싶어요', '있어요', '없어요',
   // 조건·연결 어미 — 골든셋에서 '해지하면'이 '해지'로 이어지지 않아 추가했다
   '하려면', '하면', '되면', '한다면', '하고', '해서',
+  // 구어체 질의에서 흔한데 빠져 있던 것들 (홀드아웃·골든셋으로 효과를 확인하고 넣는다)
+  '하려고요', '려고요', '하고요', '드려요', '드릴까요', '될까요', '인가요', '한가요',
 ]
+
+// 긴 것부터 본다 — 배열에 적은 순서대로 보면 짧은 어미가 먼저 걸려 긴 어미가 죽는다.
+// 예: '해주세요'가 목록에 있어도 '주세요'가 앞에 있으면 영영 쓰이지 않는다.
+// 목록을 늘릴 때마다 순서를 신경 쓰게 만드는 대신, 여기서 한 번 정렬해 둔다.
+const byLengthDesc = (list) => [...list].sort((a, b) => b.length - a.length)
+const ENDINGS_SORTED = byLengthDesc(ENDINGS)
+const PARTICLES_SORTED = byLengthDesc(PARTICLES)
 
 function stripSuffixes(word, list) {
   for (const suffix of list) {
@@ -42,8 +51,8 @@ export function stemWord(raw) {
     .toLowerCase()
     .replace(/[^가-힣a-z0-9]/g, '')
   if (w.length <= 2) return w
-  w = stripSuffixes(w, ENDINGS)
-  w = stripSuffixes(w, PARTICLES)
+  w = stripSuffixes(w, ENDINGS_SORTED)
+  w = stripSuffixes(w, PARTICLES_SORTED)
   return w
 }
 

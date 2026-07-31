@@ -103,7 +103,7 @@ npm install
 npm run dev        # 프론트만 — API가 뜨지 않아 AI 기능은 에러로 표시된다
 npm run dev:full   # 빌드 + wrangler pages dev (Functions 포함) — 키·바인딩이 없으면
                    # 서버가 데모 응답을 돌려주고 화면에 '데모' 배지가 붙는다
-npm test           # vitest 749개 (QA 점수·커스텀 규칙·CER 상한 DP·도메인 보정·RRF 융합·
+npm test           # vitest 832개 (QA 점수·커스텀 규칙·CER 상한 DP·도메인 보정·RRF 융합·
                    #              계약 검증·폴백 사다리·운영 지표·프라이버시 불변식)
 npm run lint       # oxlint
 npm run smoke      # 배포된 사이트 8종 점검 (AI 비용 없이: 라우팅·헬스·집계·정적 자산·
