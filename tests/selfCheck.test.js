@@ -95,3 +95,21 @@ describe('사전 후보 추천 — 못 잡은 것에서 무엇을 배워야 하�
     expect(s.map((x) => x.term)).not.toContain('접수번호')
   })
 })
+
+describe('경고 임계 아래라고 "모두 잡혔다"고 말하지 않는다', () => {
+  it('미분류가 남아 있으면 몇 건인지 밝힌다', () => {
+    // 12건 중 1건이 미분류면 8%라 경고는 안 뜨는데, 같은 카드의 타일은 92%라고 적혀 있다.
+    // 예전에는 "12건 모두 원인이 잡혔다"고 단정해 한 화면이 스스로 모순되는 두 말을 했다.
+    const calls = Array.from({ length: 11 }, (_, i) => call(`c${i}`, '고객: 인터넷이 느려요'))
+    calls.push(call('미상', '고객: 음 그냥요'))
+    const r = selfCheck(calls)
+    expect(r.gaps.some((g) => g.id === 'gap-none')).toBe(false)
+    const minor = r.gaps.find((g) => g.id === 'gap-minor')
+    expect(minor.detail).toContain('1건')
+  })
+
+  it('정말 하나도 안 남았을 때만 "모두 잡혔다"고 한다', () => {
+    const clean = Array.from({ length: 5 }, (_, i) => call(`c${i}`, '고객: 인터넷이 느려요'))
+    expect(selfCheck(clean).gaps.some((g) => g.id === 'gap-none')).toBe(true)
+  })
+})

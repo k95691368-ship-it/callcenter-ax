@@ -134,12 +134,27 @@ export function selfCheck(calls) {
       detail: '통화가 한 건도 없어 사각지대를 판정하지 않았습니다 — 사각지대가 없다는 뜻이 아닙니다.',
     })
   } else if (gaps.length === 0) {
-    gaps.push({
-      id: 'gap-none',
-      level: 'ok',
-      label: '지금 데이터에서는 사각지대가 발견되지 않았습니다',
-      detail: `${total}건 모두 원인이 잡혔고 담당 부서가 정해졌습니다. 새 유형의 문의가 들어오면 여기에 나타납니다.`,
-    })
+    // 경고 임계(미분류 20% · 기본배정 30%)를 넘지 않았다고 "모두 잡혔다"고 말하면 거짓이다.
+    // 12건 중 1건이 미분류면 8%라 경고는 안 뜨는데 같은 카드의 타일은 92%라고 적혀 있다 —
+    // 한 화면이 스스로 모순되는 두 말을 하게 된다. 남은 것이 있으면 몇 건인지 말한다.
+    const leftovers = []
+    if (untagged.length > 0) leftovers.push(`원인이 잡히지 않은 통화 ${untagged.length}건`)
+    if (routedDefault > 0) leftovers.push(`담당 부서가 기본값으로 간 통화 ${routedDefault}건`)
+    gaps.push(
+      leftovers.length > 0
+        ? {
+            id: 'gap-minor',
+            level: 'ok',
+            label: '경고 임계를 넘지는 않았습니다',
+            detail: `${leftovers.join(', ')}이 남아 있지만 비율이 경고 기준 아래입니다 — 늘어나면 여기에 경고로 올라옵니다.`,
+          }
+        : {
+            id: 'gap-none',
+            level: 'ok',
+            label: '지금 데이터에서는 사각지대가 발견되지 않았습니다',
+            detail: `${total}건 모두 원인이 잡혔고 담당 부서가 정해졌습니다. 새 유형의 문의가 들어오면 여기에 나타납니다.`,
+          }
+    )
   }
 
   return {

@@ -104,3 +104,25 @@ describe('안내 문구', () => {
     expect(numericNotice(numericSupport('위약금 없이 전환됩니다.', DOCS))).toBeNull()
   })
 })
+
+describe('복합 수사를 조각내지 않는다 (한국어 금액 표기의 대부분)', () => {
+  const DOC = '인터넷+TV 결합은 월 4만 4천 원, 휴대폰 회선 포함 시 월 3만 9천 원부터다. 2회선 1만 4천 원 할인.'
+
+  it('문서의 "4만 4천 원"에서 4만·4천을 낱개로 인정하지 않는다', () => {
+    // 예전에는 낱개 숫자를 하나씩 긁어 40000·4000이 따로 저장됐다.
+    // 그래서 문서에 없는 "월 4만 원"이 근거 있음으로 통과했다 — 한국어 금액이 대부분
+    // 복합 수사라 이 구멍 하나로 수치 게이트가 사실상 열려 있었다.
+    expect(numericSupport('월 4만 원입니다', DOC).ok).toBe(false)
+    expect(numericSupport('월 4천 원입니다', DOC).ok).toBe(false)
+    expect(numericSupport('월 3만 원입니다', DOC).ok).toBe(false)
+  })
+
+  it('문서에 실제로 있는 복합 금액은 그대로 통과시킨다', () => {
+    expect(numericSupport('월 4만 4천 원입니다', DOC).ok).toBe(true)
+    expect(numericSupport('2회선은 1만 4천 원 할인', DOC).ok).toBe(true)
+  })
+
+  it('표기가 달라도 같은 값이면 통과시킨다', () => {
+    expect(numericSupport('월 44,000원입니다', DOC).ok).toBe(true)
+  })
+})

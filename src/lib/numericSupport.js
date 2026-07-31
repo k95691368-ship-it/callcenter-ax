@@ -76,14 +76,20 @@ export function numericSupport(answer, docsText, question = '') {
   const claims = extractNumericClaims(answer)
   if (claims.length === 0) return { ok: true, checked: 0, supported: 0, unsupported: [] }
 
+  const source = `${String(docsText || '')} ${String(question || '')}`
   const known = new Set([...extractNumericClaims(docsText), ...extractNumericClaims(question)].map(keyOf))
-  // 단위 없이 적힌 숫자도 문서에 있으면 근거로 본다 ('4만 4천 원' 문서 ↔ '44000' 답변)
-  const bareNumbers = new Set(
-    (String(docsText || '') + ' ' + String(question || ''))
-      .match(/\d[\d,]*(?:\s*(?:억|만|천|백|십))?/g)
-      ?.map((s) => parseKoreanNumber(s))
-      .filter((n) => n != null) || []
-  )
+
+  // 단위 없이 적힌 숫자도 문서에 있으면 근거로 본다 ('4만 4천 원' 문서 ↔ '44000' 답변).
+  //
+  // 여기서 **한 덩어리를 통째로** 읽어야 한다. 예전에는 낱개 숫자를 하나씩 긁어서
+  // "4만 4천 원"이 40000과 4000 두 값으로 쪼개져 저장됐다. 그래서 문서에 없는
+  // "월 4만 원"·"월 4천 원"이 근거 있음으로 통과했다 — 한국어 금액 표기가 대부분
+  // 복합 수사라, 이 구멍 하나로 수치 게이트가 사실상 열려 있었다.
+  const bareNumbers = new Set()
+  for (const chunk of source.match(/\d[\d,]*(?:\.\d+)?(?:\s*(?:억|만|천|백|십)\s*\d*[\d,]*)*/g) || []) {
+    const whole = parseKoreanNumber(chunk)
+    if (whole != null) bareNumbers.add(whole)
+  }
 
   const unsupported = claims.filter((c) => !known.has(keyOf(c)) && !bareNumbers.has(c.value))
   return {

@@ -151,3 +151,18 @@ describe('estimateChurn — 키 없이 동작하는 경로', () => {
     expect(r.action).toBeTruthy()
   })
 })
+
+describe('해지 의사를 조사·부사 때문에 놓치지 않는다', () => {
+  it('"해지 좀 해주세요"류가 0점으로 나오지 않는다', () => {
+    // 이탈 의사를 가장 분명하게 말한 통화가 위험 없음으로 분류되면
+    // 이 지표를 보는 이유 자체가 사라진다.
+    for (const t of ['해지 좀 해주세요', '해지 부탁드립니다', '해지 요청합니다', '해지 원해요']) {
+      expect(estimateChurn(`고객: ${t}`).score).toBeGreaterThan(0)
+    }
+  })
+
+  it('해지 의사가 아닌 문장까지 잡지는 않는다', () => {
+    expect(estimateChurn('고객: 해지 절차가 궁금해서요').score).toBe(0)
+    expect(estimateChurn('고객: 요금제만 바꾸고 싶어요').score).toBe(0)
+  })
+})
