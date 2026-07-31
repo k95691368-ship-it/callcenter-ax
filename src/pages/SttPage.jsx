@@ -7,6 +7,8 @@ import GenProgress from '../components/GenProgress.jsx'
 import { computeCer } from '../lib/cer.js'
 import { applyLexicon, buildCustomLexicon, MAX_CUSTOM_TERMS } from '../lib/domainLexicon.js'
 import { maskPii, maskNotice } from '../lib/piiMask.js'
+import SegmentTimeline from '../components/SegmentTimeline.jsx'
+import { assignSpeakers, setSpeaker } from '../lib/segments.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { useRecorder } from '../lib/useRecorder.js'
 import {
@@ -86,6 +88,9 @@ export default function SttPage() {
   const [diarizing, setDiarizing] = useState(false)
   const [diaMeta, setDiaMeta] = useState(null)
   const [audioUrl, setAudioUrl] = useState('')
+  // 구간을 눌렀을 때 그 지점부터 재생하려면 오디오 요소를 직접 잡아야 한다
+  const audioRef = useRef(null)
+  const [activeSeg, setActiveSeg] = useState(-1)
   // 미리듣기 요소가 읽어 준 길이 — 분할 여부·청크 수를 업로드 전에 정확히 알리는 데 쓴다.
   // 디코딩 비용을 따로 치르지 않고 얻는 값이라 공짜다. (읽히기 전에는 null)
   const [durationSec, setDurationSec] = useState(null)
@@ -342,6 +347,22 @@ export default function SttPage() {
   }
 
   // 화자 분리 — 통짜 전사를 상담사:/고객: 형식으로 재구성 (Auto QA 규칙 층 연결용)
+  // 구간을 눌렀을 때 그 지점부터 재생한다. 오디오가 없으면(텍스트 탭) 아무 일도 하지 않는다.
+  function seekTo(sec, index) {
+    setActiveSeg(index)
+    const el = audioRef.current
+    if (!el) return
+    el.currentTime = Math.max(0, Number(sec) || 0)
+    el.play?.().catch(() => {
+      // 자동재생이 막힌 브라우저 — 위치만 옮겨두면 사용자가 재생 버튼을 누르면 된다
+    })
+  }
+
+  // 화자 라벨 교정. 고친 결과로 시간 지표가 즉시 다시 계산된다(SegmentTimeline이 파생 계산).
+  function fixSpeaker(index, speaker) {
+    setResult((prev) => (prev?.segments ? { ...prev, segments: setSpeaker(prev.segments, index, speaker) } : prev))
+  }
+
   async function diarize() {
     const base = result?.text?.trim()
     if (!base) return
@@ -355,7 +376,14 @@ export default function SttPage() {
       const tail = data.truncated ? base.slice(data.processed_chars) : ''
       const merged = tail ? `${data.formatted}\n${tail}` : data.formatted
       // 함수형 업데이트 — 응답을 기다리는 동안 사용자가 전사를 고쳤을 수 있다.
-      setResult((prev) => ({ ...prev, text: merged, plainText: prev.plainText ?? prev.text }))
+      // 화자 분리 결과를 구간에도 얹는다 — 구간에 화자가 붙어야 발화 비율·응답 지연을
+      // 시간으로 잴 수 있다. 줄 수가 구간 수와 다르면 남는 구간은 비워 둔다(틀린 라벨보다 낫다).
+      setResult((prev) => ({
+        ...prev,
+        text: merged,
+        plainText: prev.plainText ?? prev.text,
+        segments: prev.segments ? assignSpeakers(prev.segments, merged) : prev.segments,
+      }))
       setDiaMeta(data)
     } catch (err) {
       setError(err.message)
@@ -523,6 +551,7 @@ export default function SttPage() {
                 )}
                 {audioUrl && (
                   <audio
+                    ref={audioRef}
                     controls
                     src={audioUrl}
                     className="stt-audio"
@@ -633,6 +662,13 @@ export default function SttPage() {
                 이 전사를 통화 분석으로 보내기 →
               </button>
               {/* 무엇을 가렸는지 말해주지 않으면 마스킹이 도는지도, 과검출인지도 알 수 없다 */}
+              {/* 시간이 붙은 구간 — 평문 전사로는 할 수 없던 것들이 여기서 가능해진다 */}
+              <SegmentTimeline
+                segments={result?.segments}
+                activeIndex={activeSeg}
+                onSeek={seekTo}
+                onSpeakerChange={fixSpeaker}
+              />
               {masked.total > 0 && (
                 <div className="pii-box">
                   <strong>🔒 개인정보 자동 마스킹 {masked.total}건</strong>

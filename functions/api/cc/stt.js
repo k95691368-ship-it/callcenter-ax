@@ -4,6 +4,7 @@ import { json, errorJson, readJsonBody, clientKey } from '../../_lib/http.js'
 // 실패시켜 엔드포인트가 통째로 죽는다 — 안내 문구 하나 때문에 그 위험을 지지 않는다.
 import * as httpLib from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
+import { toSegments } from '../../../src/lib/segments.js'
 import { logCall } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 
@@ -29,6 +30,27 @@ const DEMO_TRANSCRIPT = `상담사: 안녕하세요, 한빛텔레콤 상담사 �
 상담사: 최근 3개월 평균 사용량 기준으로 슬림 8기가 요금제로 변경하시면 월 2만 원 절감됩니다.
 고객: 그럼 그걸로 바꿔주세요.
 상담사: 다음 달 1일부터 적용되도록 처리해 드리겠습니다. 더 도와드릴 부분 없으실까요?`
+
+// 예시 전사의 구간. AI 바인딩이 없는 환경에서도 타임코드 기능(구간 재생·화자 교정·
+// 시간 지표)이 무엇인지 보이도록 시각을 함께 둔다. demo:true와 함께 나가므로 실측으로
+// 오해되지 않으며, 시각은 문장 길이에 비례해 만든 것이지 실제 추론 결과가 아니다.
+const DEMO_SEGMENTS = (() => {
+  const lines = DEMO_TRANSCRIPT.split('\n')
+  let t = 0
+  return lines.map((line, i) => {
+    const body = line.replace(/^(상담사|고객)\s*:\s*/, '')
+    const dur = Math.max(1.5, Math.round(body.length * 0.12 * 10) / 10)
+    const start = Math.round(t * 10) / 10
+    // 사이사이 짧은 간격을 둔다 — 구간 사이가 붙어 있으면 응답 지연이 늘 0이 된다
+    t += dur + (i === 3 ? 4.2 : 0.6)
+    return {
+      start,
+      end: Math.round((start + dur) * 10) / 10,
+      text: body,
+      speaker: line.startsWith('고객') ? 'customer' : 'agent',
+    }
+  })
+})()
 
 // base 모델(@cf/openai/whisper)의 입력은 base64 문자열이 아니라 정수 배열이다.
 // 예전에는 atob → Uint8Array 채우기 → [...bytes] 스프레드로 같은 데이터를 두 번 복사했다
@@ -64,7 +86,15 @@ async function runModel(env, modelKey, audioB64) {
     ])
     const text = typeof result?.text === 'string' ? result.text.trim() : ''
     if (!text) throw new Error('전사 결과가 비어 있습니다. 음성이 들리는 파일인지 확인해주세요.')
-    return { text, model: MODELS[modelKey], latency: Date.now() - startedAt }
+    // Whisper는 구간·단어마다 시작·끝 시각을 함께 준다. 예전에는 text만 쓰고 전부 버렸는데,
+    // 시간이 사라지면 구간 재생·화자 교정·근거 역추적·침묵 지표가 전부 불가능해진다.
+    // 시간 정보가 없는 응답에서는 null을 그대로 둔다 — 0으로 채우면 화면이 거짓을 말한다.
+    return {
+      text,
+      segments: toSegments(result),
+      model: MODELS[modelKey],
+      latency: Date.now() - startedAt,
+    }
   } finally {
     // 응답을 보낸 뒤에도 50초 타이머가 살아 있으면 런타임·테스트가 그만큼 붙잡힌다.
     // (비교 모드에서는 타이머가 두 개 생기므로 특히 정리해야 한다)
@@ -108,6 +138,7 @@ export async function onRequestPost(context) {
     const payload = {
       demo: true,
       text: DEMO_TRANSCRIPT,
+      segments: DEMO_SEGMENTS,
       model,
       latency,
       notice: 'AI 바인딩이 없는 환경이라 예시 전사를 표시합니다. 배포 환경에서는 실제 음성이 전사됩니다.',
