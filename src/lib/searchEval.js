@@ -11,6 +11,7 @@
 // 무관한 질문에 자신 있게 답하는 것도 실패로 센다.
 
 import { FAQ_DOCS, bm25Rank, assessRetrieval } from './faqDocs.js'
+import { rewriteQuery } from './queryRewrite.js'
 
 export const GOLDEN_SET = [
   // 구어체 — 실제로 이렇게 검색한다
@@ -69,6 +70,14 @@ export const HOLDOUT_SET = [
   { q: '근처 맛집 알려줘', expected: null, kind: '무관' },
   { q: '아이폰 신제품 출시일', expected: null, kind: '무관' },
 ]
+
+// 운영 검색 랭커 — functions/api/cc/search.js의 어휘 검색 경로와 같은 순서다
+// (질의 재작성 → BM25). 평가가 운영과 다른 것을 재면 그 숫자는 아무것도 보증하지 않으므로,
+// search.js가 재작성을 쓰기 시작한 이상 여기 기준선도 같이 옮긴다.
+// bm25Rank 자체는 손대지 않았다 — 재작성 전 성적을 계속 잴 수 있어야 비교가 성립한다.
+export function rewriteRank(question, docs = FAQ_DOCS) {
+  return bm25Rank(rewriteQuery(question, docs).text, docs)
+}
 
 // 랭커 하나를 골든셋으로 평가한다.
 // rank: (question, docs) => [{id, score}, ...]
@@ -139,14 +148,35 @@ export function compareRankers(baseline, candidate, opts = {}) {
   }
 }
 
+// 질의 재작성이 실제로 얼마를 벌었는가 — 느낌이 아니라 두 셋의 델타로 남긴다.
+//
+// 밖에 말할 수치는 홀드아웃 델타다(golden은 참고용). 재작성 규칙을 만들면서 두 셋을 모두
+// 돌려봤으므로 홀드아웃도 이제 완전히 '보지 않은 셋'은 아니다 — 그래서 실패 목록(fails)과
+// 퇴행 목록(regressions)을 숫자와 같이 돌려준다. 남은 실패를 함께 보여주지 않으면
+// 이 델타는 "좋아졌다"는 주장일 뿐 검증이 아니다.
+export function rewriteGain({ docs = FAQ_DOCS } = {}) {
+  const holdout = compareRankers(bm25Rank, rewriteRank, { docs, set: HOLDOUT_SET })
+  const golden = compareRankers(bm25Rank, rewriteRank, { docs, set: GOLDEN_SET })
+  return {
+    holdout,
+    golden,
+    // 재작성이 무관 질의를 근거 있는 질의로 둔갑시키지 않았는가 —
+    // 재작성한 질의는 점수가 0이 될 수 없으므로(queryRewrite.js) 이 값이 떨어지면
+    // 개선이 아니라 손해다. 어느 지표보다 먼저 본다.
+    abstainKept: holdout.after.abstainAccuracy >= holdout.before.abstainAccuracy,
+    reportable: holdout.delta,
+    remaining: holdout.after.fails,
+  }
+}
+
 // 현재 운영 랭커의 성적 (화면에 그대로 보여줄 수 있게)
 export function currentScore(opts = {}) {
-  return evaluate(bm25Rank, opts)
+  return evaluate(rewriteRank, opts)
 }
 
 // 튜닝에 참조한 셋과 참조하지 않은 셋을 나눠 잰다.
 // 둘의 격차(gap)가 곧 "내가 내 실력을 얼마나 과대평가하고 있는가"다.
-export function selfAssessment(rank = bm25Rank, { docs = FAQ_DOCS } = {}) {
+export function selfAssessment(rank = rewriteRank, { docs = FAQ_DOCS } = {}) {
   const tuned = evaluate(rank, { docs, set: GOLDEN_SET })
   const holdout = evaluate(rank, { docs, set: HOLDOUT_SET })
   const gap = (k) => Math.round((tuned[k] - holdout[k]) * 1000) / 1000

@@ -8,13 +8,12 @@ import { verifyTurnstile } from '../../_lib/turnstile.js'
 import {
   checkMentions,
   scanForbidden,
-  agentLines,
+  agentScript,
   computeQaScore,
   buildCustomMentions,
   mentionRuleSet,
   REQUIRED_MENTIONS,
   applyConsistencyBand,
-  hasSpeakerLabels,
   annotateSpeakerAttribution,
   auditComments,
 } from '../../../src/lib/qaRules.js'
@@ -147,11 +146,17 @@ export async function onRequestPost(context) {
   // 커스텀 체크리스트가 오면 40점을 내장+커스텀에 균등 재배분해 같은 만점을 유지한다.
   const customs = buildCustomMentions(body?.custom_mentions)
   const ruleSet = customs.length ? mentionRuleSet(customs) : REQUIRED_MENTIONS
-  const agentText = agentLines(transcript)
-  const mentions = checkMentions(agentText, ruleSet)
-  // 화자 라벨이 없으면 agentLines가 전문을 반환해 고객 발화까지 스캔된다.
+  // 화자 라벨이 없으면 상담사 발화를 특정할 수 없어 전문을 검사한다(labeled=false).
   // 그때 귀속을 확정할 수 없는 표현은 감점을 보류하고(deduct=0) 근거로만 남긴다.
-  const speakerLabeled = hasSpeakerLabels(transcript)
+  const script = agentScript(transcript)
+  const agentText = script.text
+  const speakerLabeled = script.labeled
+  // 이행 판정의 근거 위치를 함께 받는다. 줄 번호는 원문 전사 기준으로 되돌리고,
+  // 라벨이 없으면 근거의 화자를 'unknown'으로 남긴다(상담사 발화로 단정하지 않는다).
+  const mentions = checkMentions(agentText, ruleSet, {
+    speakerLabeled,
+    lineNumbers: script.lineNumbers,
+  })
   const findings = annotateSpeakerAttribution(scanForbidden(agentText), speakerLabeled)
   const withheld = findings.filter((f) => f.withheld)
   const attribution = {
@@ -160,9 +165,25 @@ export async function onRequestPost(context) {
     withheld_deduct: withheld.reduce((s, f) => s + (f.withheldDeduct || 0), 0),
   }
 
+  // 근거 집계 — "이행 O" 개수와 "근거 발화를 실제로 짚은" 개수가 같은지 화면이 확인할 수 있게 한다.
+  // 규칙이 이행이라 했는데 위치를 못 짚는 경우가 생기면 배지가 사라져 그 사실이 드러난다.
+  const mentionEvidence = {
+    found: mentions.filter((m) => m.found).length,
+    cited: mentions.filter((m) => m.found && m.evidence).length,
+    near: mentions.filter((m) => !m.found && m.near).length,
+  }
+
   const respond = (llm, extra = {}) => {
     const score = computeQaScore({ mentions, findings, llm })
-    return json({ mentions, findings, score, speaker_labeled: speakerLabeled, attribution, ...extra })
+    return json({
+      mentions,
+      findings,
+      score,
+      speaker_labeled: speakerLabeled,
+      attribution,
+      mention_evidence: mentionEvidence,
+      ...extra,
+    })
   }
 
   const canClaude = hasApiKey(env)

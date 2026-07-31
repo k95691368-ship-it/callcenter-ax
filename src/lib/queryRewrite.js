@@ -1,0 +1,160 @@
+// 구어체 질의 재작성 — 어휘가 하나도 겹치지 않는 질문을 검색 가능한 형태로 넓힌다.
+//
+// 왜 필요한가:
+// BM25는 같은 낱말이 문서에도 있어야 찾는다. 그런데 고객은 문서의 낱말로 말하지 않는다.
+//   "아버지 폰을 제 앞으로 돌리려면"  → 문서에 있는 말은 '명의 변경'
+//   "와이프랑 같이 쓰면 싸진다던데"    → 문서에 있는 말은 '가족 결합 할인'
+// 이 두 질의는 문서와 겹치는 어절이 **하나도 없어서** 점수가 전부 0이었다(실측).
+// 어간 처리(korean.js)로도, 동의어 사전으로도 못 잇는다. 동의어는 명사-명사 대응인데
+// 여기서 끊긴 것은 "관계를 부르는 말 → 상담 맥락", "행위를 부르는 말 → 업무 용어"이기
+// 때문이다. 그래서 별도 층을 둔다.
+//
+// 치환이 아니라 확장이다 (korean.js expandQuery와 같은 원칙):
+// 원문을 그대로 두고 표준 용어를 덧붙인다. 치환하면 원문에만 있던 표현으로 맞출 기회를
+// 잃고, 무엇보다 재작성이 틀렸을 때 되돌릴 근거가 사라진다.
+//
+// **이 파일은 검색 단계 전용이다.** LLM 답변 생성에는 반드시 원문 질문을 넘긴다
+// (search.js). 재작성본으로 답하게 하면 고객이 묻지 않은 '가족 결합 할인'을 설명한다.
+
+import { expandQuery, tokenize } from './korean.js'
+
+// 규칙 표.
+//
+// kind가 판정을 가른다:
+//   topic    — 그 말 자체가 상담 주제를 가리킨다 ('해지하다', '묶다', '바꾸다').
+//   modifier — 주제를 좁히는 수식일 뿐, 혼자서는 무슨 상담인지 모른다 ('싸다', '아버지').
+// 이 구분이 아래 게이트의 핵심이다. modifier만 걸린 질의를 재작성하면
+// "싼 항공권 알려줘"가 결합 할인 문서를 자신 있게 물어 온다(실측으로 확인한 오발동).
+//
+// 규칙을 늘리지 않은 이유는 파일 하단 REJECTED 주석에 실측치와 함께 남겼다.
+export const REWRITE_RULES = [
+  {
+    id: '변경',
+    kind: 'topic',
+    // '돌리다·바꾸다·넘기다'는 이 도메인에서 거의 항상 명의·요금제 '변경'이다.
+    // '이관'은 뺐다 — faq04의 '전문 부서로 이관한다'와 부딪혀 부서 이관 질문이
+    // 명의 변경 문서로 끌려간다.
+    when: ['돌리', '바꾸', '바꿔', '넘기'],
+    add: ['변경'],
+  },
+  {
+    id: '해지',
+    kind: 'topic',
+    // '그만두다'는 해지의 구어체. '해지'를 다시 넣는 것은 복합어 분해다 —
+    // '중도해지'는 한 덩어리로 토큰화돼 '해지'와 매칭되지 않는다(실측: 1위가 faq08이었다).
+    // '끊다'는 넣지 않았다: '인터넷이 끊겨요'는 해지가 아니라 속도 장애다.
+    when: ['그만두', '해지'],
+    add: ['해지'],
+  },
+  {
+    id: '결합',
+    kind: 'topic',
+    // '같이 쓴다·묶는다'가 결합 상품을 부르는 가장 흔한 구어체.
+    // 정규화 단계에서 공백을 지우므로 '같이 쓰면'도 '같이쓰'로 걸린다.
+    when: ['같이쓰', '같이써', '같이사용', '함께쓰', '함께써', '묶'],
+    add: ['결합'],
+  },
+  {
+    id: '할인',
+    kind: 'modifier',
+    // 상태 표현('싸다·비싸다·저렴하다'). '비싸'는 '싸'에 포함돼 함께 걸린다.
+    // '요금'은 덧붙이지 않는다 — faq04·faq06·faq07에 두루 있어 변별력이 없고,
+    // 실측에서 MRR이 0.907 → 0.895로 떨어졌다.
+    when: ['싸', '싼', '저렴'],
+    add: ['할인'],
+  },
+  {
+    id: '가족',
+    kind: 'modifier',
+    // 관계어. '가족'은 결합(faq03)과 명의 변경(faq07) 양쪽에 있으므로 방향을 정하지
+    // 않고 후보만 넓힌다 — 방향은 함께 걸린 topic 규칙이 정한다.
+    // '아이·애'는 일부러 뺐다: 아이 관련 질의는 결합·명의가 아니라 소액결제(faq05)로
+    // 가야 하는데, '가족'을 넣으면 faq03/faq07로 끌려간다.
+    when: ['아버지', '아빠', '어머니', '엄마', '부모', '와이프', '아내', '남편', '배우자'],
+    add: ['가족'],
+  },
+]
+
+// 공백·기호를 지운 납작한 문자열로 본다.
+// 어절 단위로 보면 '같이 쓰면'을 한 단서로 잡을 수 없고, '더 싼'의 '싼'은
+// tokenize 단계에서 한 글자라 아예 버려진다(실측). 그래서 원문 문자열을 직접 본다.
+function flatten(text) {
+  return String(text ?? '')
+    .toLowerCase()
+    .replace(/[^가-힣a-z0-9]/g, '')
+}
+
+// 코퍼스 어휘 집합. docs 배열이 그대로 재사용되면(FAQ_DOCS 등) 캐시가 걸린다.
+const vocabCache = new WeakMap()
+export function corpusVocabulary(docs) {
+  if (!Array.isArray(docs) || docs.length === 0) return new Set()
+  const cached = vocabCache.get(docs)
+  if (cached) return cached
+  const vocab = new Set()
+  for (const d of docs) for (const t of tokenize(`${d?.title ?? ''} ${d?.body ?? ''}`)) vocab.add(t)
+  vocabCache.set(docs, vocab)
+  return vocab
+}
+
+// 질의를 확장한다.
+//
+// 게이트가 이 함수의 본론이다.
+// 덧붙이는 표준 용어(가족·결합·변경·해지·할인)는 전부 코퍼스에 실제로 있는 말이라,
+// **재작성한 질의는 점수가 0이 될 수 없다.** 즉 재작성은 assessRetrieval의 '근거 없음'
+// 판정을 되돌릴 힘을 가진다 — 무관한 질문에 물러나는 것도 이 검색이 지켜야 할 정답
+// 행동인데, 재작성이 그걸 무너뜨리면 개선이 아니라 손해다.
+// 실제로 게이트 없이 돌렸을 때 "부모님 생신 선물 추천해줘"가 none → strong(faq03)으로
+// 바뀌었다. 평가셋의 무관 질의(점심 메뉴·날씨·주식)에는 관계어가 없어서 이 오발동이
+// abstainAccuracy에는 잡히지 않았다 — 점수만 봤으면 그대로 배포했을 것이다.
+//
+// 그래서 두 조건 중 하나를 요구한다:
+//   ① 원문이 이미 코퍼스 어휘에 한 번이라도 걸린다(= 상담 관련 질문이라는 자체 근거), 또는
+//   ② topic 규칙이 걸렸다(= 행위 표현 자체가 상담 주제를 가리킨다).
+// 수식어만 걸린 질의는 재작성하지 않고 원문 그대로 돌려보낸다.
+//
+// docs를 넘기지 않으면 어휘 근거를 확인할 수 없으므로 topic 규칙만 통과한다(안전한 기본값).
+export function rewriteQuery(question, docs = []) {
+  const original = String(question ?? '')
+  const empty = { original, text: original, added: [], applied: [], anchored: false, blocked: false }
+  if (!original.trim()) return empty
+
+  const flat = flatten(original)
+  const hits = REWRITE_RULES.filter((r) => r.when.some((w) => flat.includes(w)))
+  if (hits.length === 0) return empty
+
+  const vocabulary = corpusVocabulary(docs)
+  const anchored = expandQuery(original).some((t) => vocabulary.has(t))
+  const hasTopic = hits.some((r) => r.kind === 'topic')
+  if (!anchored && !hasTopic) return { ...empty, blocked: true }
+
+  // 이미 원문에 있는 말은 덧붙이지 않는다 (같은 말을 두 번 세면 그 문서만 부풀린다)
+  const present = new Set(expandQuery(original))
+  const added = [...new Set(hits.flatMap((r) => r.add))].filter((t) => !present.has(t))
+  if (added.length === 0) return { ...empty, anchored, applied: hits.map((r) => r.id) }
+
+  return {
+    original,
+    text: `${original} ${added.join(' ')}`,
+    added,
+    applied: hits.map((r) => r.id),
+    anchored,
+    blocked: false,
+  }
+}
+
+// ── 넣었다가 뺀 규칙 (실측 근거) ────────────────────────────────────────
+// 아래 셋은 홀드아웃 recall@1을 0.857 → 1.000까지 올렸지만 채택하지 않았다.
+//   여행·출장 → 해외   (홀드아웃 "일본 여행 다녀왔는데 청구서가 이상해요" 전용)
+//   상품      → 요금제 (홀드아웃 "데이터 많이 쓰는데 더 싼 상품 없나요" 전용)
+//   청구      → 요금   (같은 질의)
+// 뺀 이유는 두 가지다.
+// (1) 셋 다 명사-명사 대응이라 이 파일이 아니라 korean.js의 SYNONYMS가 있을 자리다.
+//     여기는 "구어체 표현 → 상담 맥락"을 잇는 층이고, 층을 섞으면 나중에 어느 쪽을
+//     고쳐야 하는지 알 수 없게 된다.
+// (2) 셋 다 홀드아웃 실패 목록을 보고 역으로 만든 규칙이다. 그렇게 만든 규칙을 넣으면
+//     홀드아웃은 채점표가 되고, 그 순간 "보지 않은 질의로 잰다"는 전제가 사라진다.
+//     14문항짜리 홀드아웃에서 1.000이 나오는 것은 실력이 아니라 그 증거다.
+//
+// 토큰이 도메인 용어를 포함하면 무조건 그 용어를 덧붙이는 일반 복합어 분해도 시험했다.
+// 홀드아웃은 올랐지만 골든셋이 0.944 → 0.889로 퇴행했다('할인반환금'이 '할인'을 끌어와
+// 위약금 문서 대신 요금제 문서를 1위로 밀어 올렸다). 그래서 '해지' 하나만 규칙으로 남겼다.

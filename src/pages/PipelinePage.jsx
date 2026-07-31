@@ -9,6 +9,8 @@ import { saveMyCall } from '../lib/myCalls.js'
 import { MAX_RULE_SCORE } from '../lib/qaRules.js'
 import { useRecorder } from '../lib/useRecorder.js'
 import { buildPipelineReport } from '../lib/pipelineReport.js'
+import { buildHandoff } from '../lib/handoff.js'
+import { saveQaResult } from '../lib/qaHistory.js'
 // base64 변환은 audioChunk의 것을 그대로 쓴다 — 같은 코드가 두 곳에 있으면
 // 한쪽만 고쳐지는 날이 온다.
 import { bufferToB64 } from '../lib/audioChunk.js'
@@ -16,6 +18,16 @@ import { loadPersisted } from '../lib/persist.js'
 
 // 공고의 담당업무 파이프라인(녹취→STT→분석→QA→VOC)을 버튼 하나로 통과시키는 시연.
 // 각 단계는 실제 프로덕션 API를 그대로 호출한다 — 별도의 시연용 가짜 경로가 없다.
+
+// 처리 상태의 심각도를 색으로 잇는다. 새 CSS를 만들지 않고 기존 배지·배너 스타일을
+// 그대로 쓴다 — 같은 뜻(높음/주의/참고)이 화면마다 다른 색이면 그 색은 정보가 아니다.
+const TONE_ALERT = { high: 'voc-alert-high', warn: 'voc-alert-warn', ok: '' }
+const TONE_BADGE = { high: 'churn-high', warn: 'churn-mid', ok: 'churn-low' }
+const CHECK_LEVEL = {
+  high: { cls: 'guide-alert-high', text: '높음' },
+  warn: { cls: 'guide-alert-warn', text: '주의' },
+  info: { cls: '', text: '참고' },
+}
 
 const STEPS = [
   { id: 'stt', title: '① 녹취 전사', desc: 'Whisper large-v3-turbo (Workers AI)' },
@@ -34,21 +46,29 @@ export default function PipelinePage() {
   const [dia, setDia] = useState(null)
   const [analysis, setAnalysis] = useState(null)
   const [qa, setQa] = useState(null)
-  const [copied, setCopied] = useState(false)
+  // 이번 실행의 QA 결과가 코칭 이력에 남았는지 — 처리 상태에 "어디에 기록됐는가"로 들어간다
+  const [qaSaved, setQaSaved] = useState(false)
+  const [copied, setCopied] = useState('')
 
   // 단계별 실패를 기록하되 파이프라인 전체를 멈추지는 않는다 (STT 실패만 치명적)
   const [stageErrors, setStageErrors] = useState({})
+
+  // 6단계 결과를 처리 상태 한 덩어리로 요약한다 — 화면과 리포트가 같은 함수를 쓴다.
+  // 실패한 단계는 이 안에서 상태에 반영되므로, 분석이 실패하면 담당 부서도 비어 있다.
+  const handoff = buildHandoff({ stt, lex, dia, analysis, qa, stageErrors, qaSaved })
 
   // 6단계 결과 전체를 인수인계 문서 한 장으로 복사한다
   const copyTimerRef = useRef(null)
   useEffect(() => () => clearTimeout(copyTimerRef.current), [])
 
-  async function copyReport() {
+  // 복사 대상이 두 가지(리포트 한 장 / 티켓 초안)라 어느 것이 복사됐는지 구분해 표시한다.
+  // 하나의 boolean을 공유하면 티켓을 복사했는데 리포트 버튼에 "복사됨"이 뜬다.
+  async function copyText(id, text) {
     try {
-      await navigator.clipboard.writeText(buildPipelineReport({ stt, lex, dia, analysis, qa, stageErrors }))
-      setCopied(true)
+      await navigator.clipboard.writeText(text)
+      setCopied(id)
       clearTimeout(copyTimerRef.current)
-      copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
+      copyTimerRef.current = setTimeout(() => setCopied(''), 1500)
     } catch {
       setError('클립보드 복사에 실패했습니다.')
     }
@@ -78,6 +98,7 @@ export default function PipelinePage() {
     setDia(null)
     setAnalysis(null)
     setQa(null)
+    setQaSaved(false)
     setStageErrors({})
     try {
       // ① STT — 내장 샘플 또는 방금 녹음한 목소리를 실제 Whisper로 전사
@@ -128,8 +149,17 @@ export default function PipelinePage() {
       ])
       if (aRes.status === 'fulfilled') setAnalysis(aRes.value)
       else setStageErrors((e) => ({ ...e, analyze: aRes.reason?.message || '분석 실패' }))
-      if (qRes.status === 'fulfilled') setQa(qRes.value)
-      else setStageErrors((e) => ({ ...e, qa: qRes.reason?.message || '평가 실패' }))
+      if (qRes.status === 'fulfilled') {
+        setQa(qRes.value)
+        // 평가 결과를 코칭 이력에도 남긴다. 예전에는 /qa 화면에서만 저장해서,
+        // 파이프라인으로 돌린 통화는 "최근 N건 평균"에서 통째로 빠졌다 —
+        // 같은 평가를 두 경로로 돌렸는데 한쪽만 세는 이력은 코칭 근거가 될 수 없다.
+        // 라벨은 /qa에 저장해 둔 상담사 라벨을 그대로 쓴다(없으면 실행 경로를 적는다).
+        // 전사 원문은 저장하지 않는다 — qaHistory가 점수·누락 항목만 남긴다.
+        const label = String(loadPersisted('cc-qa-agent-label', '') || '').trim()
+        saveQaResult(qRes.value, { label: label || '파이프라인 실행' })
+        setQaSaved(true)
+      } else setStageErrors((e) => ({ ...e, qa: qRes.reason?.message || '평가 실패' }))
 
       // ⑥ VOC 누적 — 분석이 성공한 경우에만
       setStage(5)
@@ -303,10 +333,20 @@ export default function PipelinePage() {
                   </div>
                 </div>
                 {qa.coaching && <p className="result-empty-sub">코칭: {qa.coaching}</p>}
+                {qaSaved && (
+                  <p className="result-empty-sub">
+                    이 평가가 코칭 이력에 기록되었습니다 — 점수와 누락 항목만 이 브라우저에 남습니다.{' '}
+                    <Link className="req-link" to="/qa">
+                      코칭 이력에서 확인 →
+                    </Link>
+                  </p>
+                )}
               </div>
             )}
 
-            {s.id === 'voc' && stage === 6 && !stageErrors.voc && (
+            {/* "누적되었습니다"는 실제로 누적된 경우에만 쓴다 — 에러가 없다는 것과
+                분석 결과가 있다는 것은 다르다(records.voc가 둘을 함께 본다). */}
+            {s.id === 'voc' && stage === 6 && handoff.records.voc && (
               <div className="pipe-result">
                 <p className="result-empty-sub">
                   이 분석이 VOC 대시보드에 누적되었습니다.{' '}
@@ -322,14 +362,76 @@ export default function PipelinePage() {
 
       {stage === 6 && (
         <>
-          <div className="hub-cta result-actions">
-            <button type="button" className="btn-ghost" onClick={copyReport}>
-              {copied ? '✓ 복사됨' : '전체 리포트 복사 (인수인계 한 장)'}
-            </button>
-            <Link to="/voc" className="btn-ghost">
-              VOC 대시보드에서 누적 확인 →
-            </Link>
-          </div>
+          {/* 처리 상태 — 6단계를 돌렸다는 사실이 아니라 "그래서 이 통화가 어떻게 되는가"를
+              닫는 자리. 값은 전부 앞 단계 응답에서 오고, 실패한 단계는 그대로 반영된다. */}
+          <section className="analysis-block">
+            <h2>처리 상태 — 이 통화는 어떻게 처리되는가</h2>
+            <div className="voc-alerts">
+              <div className={`voc-alert ${TONE_ALERT[handoff.status.tone] || ''}`}>
+                <strong>{handoff.headline}</strong>
+                <span>{handoff.status.detail}</span>
+              </div>
+            </div>
+
+            <div className="churn-box">
+              <div className="churn-head">
+                <span className={`churn-level ${TONE_BADGE[handoff.status.tone] || 'churn-low'}`}>
+                  {handoff.owner ? `${handoff.owner.priority} · ${handoff.owner.team}` : '담당 미배정'}
+                </span>
+                <span className="usage-note">
+                  {handoff.due ? `처리 기한: ${handoff.due}` : '자동 배정 근거 없음 — 담당자는 사람이 정해야 합니다'}
+                </span>
+                <span className="usage-note">{handoff.run.label}</span>
+              </div>
+              {handoff.title && <p className="pipe-text">{handoff.title}</p>}
+
+              <ul className="plain-list guide-alerts">
+                {handoff.checks.map((c) => (
+                  <li key={c.id} className={CHECK_LEVEL[c.level].cls}>
+                    <strong>
+                      <span className="guide-level">{CHECK_LEVEL[c.level].text}</span>
+                      {c.label}
+                    </strong>
+                    <span className="guide-detail">{c.detail}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <p className="result-empty-sub">
+                기록: VOC 대시보드 {handoff.records.voc ? '반영됨' : '미반영'} · 코칭 이력{' '}
+                {handoff.records.qaHistory ? '기록됨' : '미기록'} — 서버에는 아무것도 저장하지 않습니다.
+              </p>
+            </div>
+
+            {/* 다음 행동은 존재하는 결과에서만 만든다. 분석이 실패했는데 "티켓 초안 복사"를
+                띄우면 누른 사람이 빈 문서를 받는다 — 그래서 버튼 목록도 handoff가 정한다. */}
+            <div className="hub-cta result-actions">
+              {handoff.actions.map((a) =>
+                a.to ? (
+                  <Link key={a.id} to={a.to} className="btn-ghost">
+                    {a.label} →
+                  </Link>
+                ) : (
+                  <button
+                    key={a.id}
+                    type="button"
+                    className="btn-ghost"
+                    onClick={() =>
+                      copyText(
+                        a.id,
+                        a.id === 'copy-ticket'
+                          ? handoff.ticketText
+                          : buildPipelineReport({ stt, lex, dia, analysis, qa, stageErrors, qaSaved })
+                      )
+                    }
+                  >
+                    {copied === a.id ? '✓ 복사됨' : a.label}
+                  </button>
+                )
+              )}
+            </div>
+          </section>
+
           <div className="about-point">
             방금 실행된 6단계가 곧 채용공고의 담당업무입니다 — STT, 도메인 튜닝, 화자 분리(NLP),
             분류·요약·감정 분석, Auto QA, VOC. 각 단계는 <Link to="/stt">개별 페이지</Link>에서

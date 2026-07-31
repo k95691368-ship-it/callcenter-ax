@@ -120,18 +120,188 @@ export const FORBIDDEN_RULES = [
   },
 ]
 
+// ── 이행 근거(evidence) ──────────────────────────────────────────────────────
+// QA 점수는 수퍼바이저가 상담사 앞에서 방어해야 하는 숫자다. "녹취 고지 O"만 주면
+// 방어할 수 없다 — 물어보는 것은 언제나 "어디서 그렇게 판단했는가"다.
+// 그래서 이행 판정과 **같은 규칙**으로 매치 위치를 되돌려준다. 점수 계산에는 관여하지
+// 않는다(근거를 드러낼 뿐 채점을 바꾸지 않는다).
+
+// 매치 앞뒤로 함께 보여줄 문자 수. 발화 한 줄이 통째로 짧으면 줄 전체가 인용된다.
+export const EVIDENCE_CONTEXT = 60
+// 인용 구간 상한. 줄바꿈 없는 8000자 전사가 들어오면 "그 줄"이 곧 전문이므로 잘라야 한다.
+export const EVIDENCE_MAX_QUOTE = 200
+
+// 화자 라벨이 없는 전사에서는 근거 발화가 상담사의 것인지 확정할 수 없다.
+// 그때 "상담사가 이렇게 말했다"고 적으면 감점 보류(annotateSpeakerAttribution)와
+// 같은 종류의 거짓이 된다 — 확인한 만큼만 말한다.
+export const EVIDENCE_UNKNOWN_SPEAKER_NOTE = '화자 미확인 — 상담사 발화로 단정할 수 없음'
+
+const countNewlines = (s, end) => {
+  let n = 0
+  for (let i = 0; i < end; i += 1) if (s[i] === '\n') n += 1
+  return n
+}
+
+// 매치 위치 → 화면에 그대로 쓸 수 있는 근거 객체.
+// quote 안의 [start, end) 가 매치 구간이므로 프론트는 slice만으로 강조할 수 있다.
+// lineNumbers는 "검사한 텍스트의 n번째 줄 = 원문 전사의 몇 번째 줄"인지의 대응표다
+// (상담사 발화만 뽑아 검사하므로 이 표가 없으면 원문 줄 번호를 되돌릴 수 없다).
+function evidenceAt(text, index, rawLength, { lineNumbers = null, speakerLabeled = null } = {}) {
+  // 탐욕적 정규식(/성함.*확인/)은 한 줄 전체를 매치할 수 있다. 강조 구간도 상한을 둔다.
+  const length = Math.max(0, Math.min(rawLength, EVIDENCE_MAX_QUOTE))
+  const lineIdx = countNewlines(text, index)
+  const lineStart = index > 0 ? text.lastIndexOf('\n', index - 1) + 1 : 0
+  const nl = text.indexOf('\n', index + Math.max(length, 1))
+  const lineEnd = nl === -1 ? text.length : nl
+  const rawLine = text.slice(lineStart, lineEnd)
+  const at = index - lineStart
+  const from = Math.max(0, at - EVIDENCE_CONTEXT)
+  const to = Math.min(rawLine.length, at + length + EVIDENCE_CONTEXT, from + EVIDENCE_MAX_QUOTE)
+
+  // 줄바꿈을 공백으로 바꾸는 것은 1:1 치환이라 오프셋이 어긋나지 않는다.
+  // (\s 는 개행도 먹으므로 /본인\s*확인/ 같은 규칙은 드물게 두 줄에 걸쳐 매치된다)
+  let quote = rawLine.slice(from, to).replace(/\n/g, ' ')
+  const lead = quote.length - quote.trimStart().length
+  quote = quote.slice(lead)
+  const start = Math.max(0, at - from - lead)
+  const end = Math.min(quote.length, start + length)
+  // 뒤쪽 공백만 떨어낸다 — 앞쪽을 더 자르면 start가 어긋난다
+  quote = quote.slice(0, end) + quote.slice(end).replace(/\s+$/, '')
+
+  return {
+    // 원문 전사 기준 줄 번호(1-based). 대응표가 없으면 검사한 텍스트 기준 줄 번호.
+    line: lineNumbers?.[lineIdx] ?? lineIdx + 1,
+    index,
+    match: text.slice(index, index + length).replace(/\n/g, ' '),
+    quote,
+    start,
+    end,
+    clippedStart: from > 0,
+    clippedEnd: to < rawLine.length,
+    speaker: speakerLabeled === true ? 'agent' : 'unknown',
+  }
+}
+
+// 규칙이 텍스트에서 처음 걸리는 지점. 여러 패턴이 걸리면 더 앞선 발화를 근거로 삼는다
+// (같은 위치면 더 긴 매치 — 근거는 길수록 읽는 사람이 판단하기 쉽다).
+function firstRuleMatch(text, rule) {
+  let best = null
+  const better = (index, length) =>
+    !best || index < best.index || (index === best.index && length > best.length)
+  if (rule.patterns) {
+    for (const p of rule.patterns) {
+      const m = text.match(p)
+      // /g 플래그가 붙은 정규식은 index를 주지 않는다 — NaN 오프셋이 응답에 새지 않게 막는다
+      if (m && typeof m.index === 'number' && better(m.index, m[0].length)) {
+        best = { index: m.index, length: m[0].length }
+      }
+    }
+  } else {
+    for (const k of rule.keywords || []) {
+      const i = text.indexOf(k)
+      if (i !== -1 && better(i, k.length)) best = { index: i, length: k.length }
+    }
+  }
+  return best
+}
+
+// 미이행 항목의 "가장 가까웠던 발화"를 찾기 위한 리터럴 조각.
+// 정규식 소스에서 메타문자를 걷어내고 글자 덩어리만 남긴다 —
+// /처리(해|하겠|되|가\s*완료)/ → ['처리','하겠','완료'].
+// 1글자 조각은 버린다(조사·어미 한 글자가 아무 발화에나 걸려 근거가 소음이 된다).
+export function patternLiterals(pattern) {
+  const src = pattern instanceof RegExp ? pattern.source : String(pattern ?? '')
+  return [
+    ...new Set(
+      src
+        .replace(/\\[a-zA-Z]/g, '|') // \s \d \w … 문자 클래스는 경계로 취급
+        .split(/[()[\]{}|*+?.^$\\\s]+/)
+        .filter((s) => s.length >= 2)
+    ),
+  ]
+}
+
+const ruleLiterals = (rule) =>
+  rule.patterns ? [...new Set(rule.patterns.flatMap(patternLiterals))] : (rule.keywords || []).filter((k) => k.length >= 2)
+
+// 근접 발화로 인정할 최소 겹침 — 규칙 조각의 절반 이상이, 최소 2글자 연속으로 겹쳐야 한다.
+// 이보다 느슨하면 "확인"의 '확' 한 글자로 아무 발화나 근거로 끌려온다.
+export const NEAR_MIN_RATIO = 0.5
+export const NEAR_MIN_CHARS = 2
+
+// 규칙 조각의 **앞에서부터** 이어지는 겹침만 센다 (없으면 null).
+//
+// 위치를 가리지 않고 겹침을 재던 첫 구현은 어미에 편승했다: 8000자 상담 전사를 넣으면
+// '반갑습니다'와 "…포함되어 있습니다"가 '습니다' 3글자로 0.6이 나와, 첫인사의
+// "가장 가까웠던 발화"로 아무 문장이나 뽑혔다. 한국어는 어간이 앞, 어미가 뒤에 오므로
+// 뒤쪽만 겹치는 것은 의미가 아니라 문법이 겹친 것이다(같은 함정을 quoteVerbatimRatio의
+// 2-gram 방식에서 이미 겪었다). 앞에서부터의 겹침만 세면 어미 편승이 원리적으로 불가능하다.
+// 대가: '청약철회'의 뒷부분('철회')만 나온 발화는 근접으로 잡지 못한다 —
+// 소음을 근거라고 내미는 쪽이 놓치는 쪽보다 나쁘므로 이 손해를 택한다.
+function sharedPrefix(token, line) {
+  for (let len = token.length; len >= NEAR_MIN_CHARS; len -= 1) {
+    const at = line.indexOf(token.slice(0, len))
+    if (at !== -1) return { at, len }
+  }
+  return null
+}
+
+// 미이행 항목의 근접 발화. **규칙과 실제로 겹치는 발화가 있을 때만** 돌려준다 —
+// 없으면 null이다. 추측으로 "아마 이 발화가 그 뜻이었을 것"이라고 말하지 않는다.
+// 이행 근거가 아니라 코칭용 참고이므로 partial:true와 겹친 비율을 함께 준다.
+function nearestMiss(text, rule, options) {
+  const tokens = ruleLiterals(rule)
+  if (!text || tokens.length === 0) return null
+  const lines = text.split('\n')
+  let best = null
+  let offset = 0
+  for (const line of lines) {
+    for (const token of tokens) {
+      const hit = sharedPrefix(token, line)
+      if (!hit) continue
+      const ratio = hit.len / token.length
+      if (ratio < NEAR_MIN_RATIO) continue
+      if (!best || ratio > best.ratio || (ratio === best.ratio && hit.len > best.len)) {
+        best = { ratio, len: hit.len, index: offset + hit.at }
+      }
+    }
+    offset += line.length + 1 // '\n' 한 칸
+  }
+  if (!best) return null
+  return {
+    ...evidenceAt(text, best.index, best.len, options),
+    partial: true,
+    overlap: Math.round(best.ratio * 100) / 100,
+  }
+}
+
 // 상담사 발화만 대상으로 필수 멘트 이행 여부를 점검한다.
 // 내장 규칙은 정규식, 커스텀 규칙은 키워드 포함 여부로 판정한다.
-export function checkMentions(text, ruleSet = REQUIRED_MENTIONS) {
+//
+// options.lineNumbers: 검사 텍스트의 줄 → 원문 전사의 줄 번호 대응표 (agentScript가 만든다)
+// options.speakerLabeled: 전사에 화자 라벨이 있었는가. **true를 명시할 때만** 근거를
+//   상담사 발화로 표기한다. 기본값을 true로 두면 라벨을 확인하지 않은 호출부가
+//   조용히 "상담사가 말했다"는 거짓을 만들어내므로, 모르면 'unknown'으로 남긴다.
+export function checkMentions(text, ruleSet = REQUIRED_MENTIONS, options = {}) {
   const t = text || ''
-  return ruleSet.map((m) => ({
-    id: m.id,
-    label: m.label,
-    points: m.points,
-    example: m.example,
-    ...(m.custom ? { custom: true } : {}),
-    found: m.patterns ? m.patterns.some((p) => p.test(t)) : m.keywords.some((k) => t.includes(k)),
-  }))
+  const opts = { lineNumbers: options?.lineNumbers ?? null, speakerLabeled: options?.speakerLabeled ?? null }
+  return ruleSet.map((m) => {
+    // 판정식은 예전 그대로다 — 근거를 덧붙이는 작업이지 채점을 바꾸는 작업이 아니다
+    const found = m.patterns ? m.patterns.some((p) => p.test(t)) : m.keywords.some((k) => t.includes(k))
+    const hit = found ? firstRuleMatch(t, m) : null
+    return {
+      id: m.id,
+      label: m.label,
+      points: m.points,
+      example: m.example,
+      ...(m.custom ? { custom: true } : {}),
+      found,
+      // 이행 근거: 어느 줄, 어느 구절에서 매치됐는가
+      evidence: hit ? evidenceAt(t, hit.index, hit.length, opts) : null,
+      // 미이행 항목의 근접 발화 (겹치는 발화가 없으면 null)
+      near: found ? null : nearestMiss(t, m, opts),
+    }
+  })
 }
 
 // 금지 표현 스캔 — 겹치는 매치는 더 긴 표현 하나로만 보고한다.
@@ -167,11 +337,16 @@ export function scanForbidden(text) {
   return deduped
 }
 
+// 상담사 발화 줄의 형태. 판별(hasSpeakerLabels)과 추출(agentScript)이 어긋나면
+// "라벨이 있다고 표시했는데 상담사 발화는 못 찾는" 상태가 되므로 한 곳에서 쓴다.
+const AGENT_LINE_RE = /^\s*(상담사|상담원|agent)\s*[:：]/i
+const AGENT_PREFIX_RE = /^\s*(상담사|상담원|agent)\s*[:：]\s*/i
+
 // 화자 라벨이 실제로 있는지 — 없으면 아래 agentLines가 전체 텍스트를 돌려주므로
 // 금지 표현 스캔이 고객 발화까지 상담사 감점으로 집계한다("했잖아요", "아 진짜"는
 // 화난 고객의 말이다). 점수를 조용히 왜곡하지 않도록 호출부가 이 사실을 표시해야 한다.
 export function hasSpeakerLabels(transcript) {
-  return (transcript || '').split('\n').some((l) => /^\s*(상담사|상담원|agent)\s*[:：]/i.test(l))
+  return (transcript || '').split('\n').some((l) => AGENT_LINE_RE.test(l))
 }
 
 export const WITHHELD_NOTE = '화자 미확인 — 감점 보류'
@@ -203,12 +378,26 @@ export function annotateSpeakerAttribution(findings = [], speakerLabeled = true)
   )
 }
 
+// 통화 텍스트에서 상담사 발화만 뽑되, **원문 줄 번호를 함께** 돌려준다.
+// 근거를 화면에 보여주려면 "검사한 텍스트의 3번째 줄"이 아니라 "전사의 7번째 줄"이라고
+// 말해야 수퍼바이저가 원문에서 그 자리를 찾을 수 있다. agentLines는 텍스트만 반환하므로
+// 그 대응이 사라진다 — 그래서 대응표를 만드는 함수를 따로 둔다.
+// 반환: { text, lineNumbers[], labeled }
+export function agentScript(transcript) {
+  const src = transcript || ''
+  const all = src.split('\n')
+  const picked = []
+  all.forEach((line, i) => {
+    if (AGENT_LINE_RE.test(line)) picked.push({ no: i + 1, text: line.replace(AGENT_PREFIX_RE, '') })
+  })
+  // 화자 구분이 없으면 전체를 그대로 본다 — 이때 줄 번호는 원문 줄 번호와 같다
+  if (picked.length === 0) return { text: src, lineNumbers: all.map((_, i) => i + 1), labeled: false }
+  return { text: picked.map((p) => p.text).join('\n'), lineNumbers: picked.map((p) => p.no), labeled: true }
+}
+
 // 통화 텍스트에서 상담사 발화만 추출한다. 화자 구분이 없으면 전체를 반환한다.
 export function agentLines(transcript) {
-  const lines = (transcript || '').split('\n')
-  const agent = lines.filter((l) => /^\s*(상담사|상담원|agent)\s*[:：]/i.test(l))
-  if (agent.length === 0) return transcript || ''
-  return agent.map((l) => l.replace(/^\s*(상담사|상담원|agent)\s*[:：]\s*/i, '')).join('\n')
+  return agentScript(transcript).text
 }
 
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n))

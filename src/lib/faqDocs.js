@@ -81,6 +81,11 @@ export function rankByKeyword(question, docs = FAQ_DOCS) {
 // (3) 긴 문서가 우연히 더 많이 걸리는 편향을 문서 길이로 정규화한다.
 // 어절 매치가 하나도 없으면 문자 2-gram으로 물러난다 — 오탈자·띄어쓰기 차이를
 // 0점으로 두면 사용자는 "검색이 안 된다"고만 느낀다.
+//
+// 이 함수 앞에 질의 재작성 층이 하나 더 있다(src/lib/queryRewrite.js).
+// BM25는 같은 낱말이 문서에도 있어야 찾으므로, 문서와 어절이 하나도 겹치지 않는 구어체
+// ("와이프랑 같이 쓰면 싸진다던데")는 여기서 손쓸 방법이 없다. 그래서 랭커를 건드리는 대신
+// 질의를 넓혀서 넣는다 — bm25Rank 자체는 재작성 전후 성적을 비교할 기준선으로 남겨 둔다.
 export function bm25Rank(question, docs = FAQ_DOCS, { k1 = 1.2, b = 0.75 } = {}) {
   const corpus = docs.map((d) => tokenize(`${d.title} ${d.title} ${d.body}`))
   const avgdl = corpus.reduce((s, c) => s + c.length, 0) / Math.max(corpus.length, 1) || 1

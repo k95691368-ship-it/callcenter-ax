@@ -7,7 +7,7 @@ import CharCount from '../components/CharCount.jsx'
 import { VerifyBadge } from '../components/VerifyBadge.jsx'
 import { revealElement } from '../components/motion.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
-import { MAX_RULE_SCORE, MAX_CUSTOM_MENTIONS } from '../lib/qaRules.js'
+import { MAX_RULE_SCORE, MAX_CUSTOM_MENTIONS, EVIDENCE_UNKNOWN_SPEAKER_NOTE } from '../lib/qaRules.js'
 import { usePersistentState } from '../lib/persist.js'
 import { loadQaHistory, saveQaResult, clearQaHistory, summarizeQaHistory } from '../lib/qaHistory.js'
 import { maskPii, maskNotice } from '../lib/piiMask.js'
@@ -49,6 +49,68 @@ function ScoreGauge({ total, grade }) {
         <span>/ 100 · {grade}등급</span>
       </div>
     </div>
+  )
+}
+
+// 근거 발화 한 줄 — 매치 구간만 <mark>로 강조한다.
+// 서버가 quote 안의 [start, end)를 주므로 프론트가 다시 검색하지 않는다
+// (다시 찾으면 규칙과 화면이 서로 다른 자리를 가리킬 수 있다).
+function EvidenceQuote({ ev }) {
+  const start = Math.max(0, Math.min(ev.start ?? 0, ev.quote.length))
+  const end = Math.max(start, Math.min(ev.end ?? 0, ev.quote.length))
+  return (
+    <p className="scan-reason">
+      {ev.clippedStart && '…'}
+      {ev.quote.slice(0, start)}
+      <mark>{ev.quote.slice(start, end)}</mark>
+      {ev.quote.slice(end)}
+      {ev.clippedEnd && '…'}
+    </p>
+  )
+}
+
+// 근거 출처 한 줄 — 전사 줄 번호와 화자 확인 여부.
+// 화자 라벨이 없는 전사에서 "상담사가 말했다"고 적으면 거짓이므로, 그때는 미확인이라 쓴다.
+function EvidenceSource({ ev }) {
+  return (
+    <p className="scan-reason">
+      전사 {ev.line}번째 줄 · {ev.speaker === 'agent' ? '상담사 발화' : EVIDENCE_UNKNOWN_SPEAKER_NOTE}
+    </p>
+  )
+}
+
+// 체크리스트 항목의 근거. 이행이면 판정 근거 발화를, 미이행이면 가장 가까웠던 발화를 편다.
+// 전사 전체를 하이라이트하지 않는다 — 물어보는 것은 "어느 발화에서 그렇게 봤는가" 하나다.
+function MentionEvidence({ mention }) {
+  if (mention.found) {
+    if (!mention.evidence) return null
+    return (
+      <details className="qa-evidence">
+        <summary className="scan-reason" style={{ cursor: 'pointer' }}>
+          근거 발화 보기
+        </summary>
+        <EvidenceQuote ev={mention.evidence} />
+        <EvidenceSource ev={mention.evidence} />
+      </details>
+    )
+  }
+  // near가 null이면 "찾아봤지만 없다", 키 자체가 없으면 "이 응답은 근거를 계산하지 않았다"다.
+  // 둘을 뭉개면 계산하지 않은 것을 "없다"고 말하게 된다.
+  if (!mention.near)
+    return 'near' in mention ? (
+      <p className="scan-reason">이 통화에서 규칙과 겹치는 발화를 찾지 못했습니다.</p>
+    ) : null
+  return (
+    <details className="qa-evidence">
+      <summary className="scan-reason" style={{ cursor: 'pointer' }}>
+        가장 가까웠던 발화 보기 (부분 일치 {Math.round(mention.near.overlap * 100)}%)
+      </summary>
+      <EvidenceQuote ev={mention.near} />
+      <EvidenceSource ev={mention.near} />
+      <p className="scan-reason">
+        규칙과 일부만 겹칩니다 — 이행 근거가 아니라 코칭용 참고입니다(점수에 반영되지 않습니다).
+      </p>
+    </details>
   )
 }
 
@@ -98,9 +160,22 @@ export default function QaPage() {
   async function copyResult() {
     if (!result) return
     const s = result.score
+    // 점수표를 복사해 가는 이유는 상담사와 마주 앉아 설명하기 위해서다.
+    // O/X만 복사하면 화면 밖에서는 다시 "어디서 그렇게 봤느냐"에 답할 수 없으므로
+    // 판정 근거(이행 발화 / 근접 발화)를 함께 담는다.
+    const cite = (m) => {
+      const ev = m.found ? m.evidence : m.near
+      // 근거를 계산하지 않은 응답에 "겹치는 발화 없음"이라고 쓰면 없는 사실을 적는 것이 된다
+      if (!ev) return m.found || !('near' in m) ? null : `  · ${m.label}: 겹치는 발화 없음`
+      const who = ev.speaker === 'agent' ? '상담사' : '화자 미확인'
+      const kind = m.found ? '근거' : '근접(이행 아님)'
+      return `  · ${m.label} ${kind}: "${ev.quote}" (전사 ${ev.line}줄 · ${who})`
+    }
+    const cites = result.mentions.map(cite).filter(Boolean)
     const lines = [
       `[Auto QA] 총점 ${s.total}/100 (${s.grade}등급) — 규칙 ${s.ruleScore}/${MAX_RULE_SCORE} · LLM ${s.llmScore}/60 · 감점 -${s.deduction}`,
       `필수 멘트: ${result.mentions.map((m) => `${m.label} ${m.found ? 'O' : 'X'}`).join(', ')}`,
+      ...(cites.length ? ['판정 근거:', ...cites] : []),
       ...(result.findings.length ? [`금지 표현: ${result.findings.map((f) => `"${f.word}"(-${f.deduct})`).join(', ')}`] : []),
       ...(result.coaching ? [`코칭: ${result.coaching}`] : []),
     ]
@@ -278,14 +353,27 @@ export default function QaPage() {
 
               <section className="analysis-block">
                 <h2>필수 안내 멘트 체크리스트 (규칙 기반)</h2>
+                {/* O/X만으로는 상담사 앞에서 방어할 수 없다 — 판정 근거가 된 발화를 함께 편다.
+                    이행 건수와 근거를 짚은 건수가 같을 때만 배지를 띄운다(같지 않으면 사라진다). */}
+                {result.mention_evidence?.found > 0 &&
+                  result.mention_evidence.cited === result.mention_evidence.found && (
+                    <div className="result-toolbar">
+                      <VerifyBadge title="이행(O)으로 표시된 항목마다 그 판정의 근거가 된 발화 위치를 규칙 스캔이 함께 기록했습니다. 항목을 펼치면 해당 발화가 보입니다.">
+                        이행 {result.mention_evidence.found}건 모두 근거 발화 확인
+                      </VerifyBadge>
+                    </div>
+                  )}
                 <ul className="qa-checklist">
                   {result.mentions.map((m) => (
                     <li key={m.id} className={m.found ? 'ok' : 'miss'}>
                       <span className="qa-check-mark">{m.found ? '✓' : '✗'}</span>
-                      <span>
+                      {/* 근거(details·p)가 들어오므로 인라인 span 대신 블록 컨테이너를 쓴다.
+                          flex 자식으로서의 배치는 동일하다. */}
+                      <div>
                         {m.custom && <span className="chip mine-chip">커스텀</span>}
                         <strong>{m.label}</strong> ({m.points}점) — 예: {m.example}
-                      </span>
+                        <MentionEvidence mention={m} />
+                      </div>
                     </li>
                   ))}
                 </ul>

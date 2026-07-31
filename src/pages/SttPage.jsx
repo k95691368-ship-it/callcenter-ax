@@ -9,6 +9,13 @@ import { applyLexicon, buildCustomLexicon, MAX_CUSTOM_TERMS } from '../lib/domai
 import { maskPii, maskNotice } from '../lib/piiMask.js'
 import SegmentTimeline from '../components/SegmentTimeline.jsx'
 import { assignSpeakers, setSpeaker } from '../lib/segments.js'
+import {
+  stitchChunks,
+  buildTimeline,
+  diagnoseTimeline,
+  formatClock,
+  SILENCE_MIN_SEC,
+} from '../lib/callTimeline.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { useRecorder } from '../lib/useRecorder.js'
 import {
@@ -187,6 +194,21 @@ export default function SttPage() {
     [masked.text, customTerms]
   )
 
+  // 시간 지표 — 타임스탬프가 있을 때만 계산된다(없으면 null).
+  //
+  // callMetrics.js는 발화량을 글자 수로 재고 스스로 "근사치"라고 적어 두었다. 글자 수로는
+  // 침묵과 발화 속도를 원리적으로 볼 수 없다 — 아무도 말하지 않은 시간은 글자가 0이라
+  // 존재 자체가 안 보이고, 같은 100자를 20초에 말했는지 60초에 말했는지도 구분되지 않는다.
+  // 구간 타임스탬프가 있으면 그 둘을 실측으로 바꿀 수 있다.
+  //
+  // durationSec은 서버가 준 음성 파일의 실제 길이만 쓴다. 미리듣기 상태값(durationSec)은
+  // 전사 후 다른 파일을 고르면 바뀌어 있어서, 끝난 전사의 통화 길이를 엉뚱하게 늘린다.
+  const timeline = useMemo(
+    () => buildTimeline(result?.segments, { durationSec: result?.duration ?? null, blind: result?.blind ?? [] }),
+    [result?.segments, result?.duration, result?.blind]
+  )
+  const timeDiagnosis = useMemo(() => diagnoseTimeline(timeline), [timeline])
+
   // 장시간 녹취 분할 전사 — 6MB·단발 호출 한계를 클라이언트 분할로 돌파한다
   const [chunkNote, setChunkNote] = useState('')
   async function transcribeLong(theFile, leadNote = '') {
@@ -194,12 +216,17 @@ export default function SttPage() {
     setError('')
     setAltResult(null)
     const texts = []
+    // 청크별 전사 구간을 청크 경계(start/end)와 함께 모은다. 경계가 곧 오프셋이다.
+    const chunkSegments = []
     let chunkCount = 0
     let demoChunks = 0
     const startedAt = Date.now()
     const commit = (note) => {
       const merged = texts.filter(Boolean).join(' ')
       if (!merged) return false
+      // 각 청크의 타임스탬프는 **청크 내부 기준(0초 시작)**이라 그대로 쓰면
+      // 27분 통화의 구간이 전부 0~55초에 뭉친다. 청크 start를 더해 전체 타임라인으로 잇는다.
+      const { segments, blind } = stitchChunks(chunkSegments)
       setResult({
         // 청크가 데모 전사(AI 미연결)로 돌아왔다면 라이브라고 표시하지 않는다
         demo: demoChunks > 0,
@@ -208,6 +235,11 @@ export default function SttPage() {
         model: `${MODELS_LABEL} · 분할 전사 ${texts.length}/${chunkCount}청크`,
         latency: Date.now() - startedAt,
         chunked: texts.length,
+        segments: segments.length ? segments : null,
+        blind,
+        // 통화 길이는 디코딩으로 이미 알고 있다(마지막 청크의 끝) — 서버에 물을 필요가 없고,
+        // 중단된 전사에서도 "몇 분짜리 통화였는지"는 정확하다.
+        duration: chunkSegments.length ? chunkSegments[chunkSegments.length - 1].end : null,
         notice: [leadNote, note].filter(Boolean).join(' ') || undefined,
       })
       requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
@@ -222,6 +254,10 @@ export default function SttPage() {
         const r = await postJson('/api/cc/stt', { audio_b64: bufferToB64(chunks[i].wav) })
         if (r.demo) demoChunks += 1
         texts.push((r.text || '').trim())
+        // 시도한 청크는 전사 성공 여부와 관계없이 모두 기록한다. 타임스탬프를 못 받은
+        // 청크(데모 응답 등)의 시간은 "조용했다"가 아니라 "모른다"로 다뤄야 하고,
+        // 그러려면 그 청크가 통화의 어느 구간이었는지가 남아 있어야 한다.
+        chunkSegments.push({ start: chunks[i].start, end: chunks[i].end, segments: r.segments ?? null })
       }
       if (!commit(undefined)) {
         setError('전사 결과가 비어 있습니다. 무음이거나 인식 가능한 발화가 없는 파일로 보입니다.')
@@ -662,6 +698,88 @@ export default function SttPage() {
                 이 전사를 통화 분석으로 보내기 →
               </button>
               {/* 무엇을 가렸는지 말해주지 않으면 마스킹이 도는지도, 과검출인지도 알 수 없다 */}
+              {/* 시간으로만 잴 수 있는 지표 — 화자 라벨이 없어도 나온다.
+                  타임스탬프가 없으면(데모·구형 응답) 계산하지 않고 그 사실을 대신 말한다. */}
+              {timeline ? (
+                <section className="seg-block">
+                  <h2>통화 시간 지표 — 타임스탬프 실측</h2>
+                  <p className="result-empty-sub">
+                    글자 수로 추정한 값이 아니라 Whisper가 구간마다 돌려준 시작·끝 시각으로 잰
+                    값입니다. 화자 라벨이 없어도 계산됩니다.
+                    {timeline.partial &&
+                      ` 일부 구간(${timeline.blindSec}초)은 시간 정보를 받지 못해 제외했고, 아래 수치는 관측된 ${timeline.coveredSec}초 기준입니다.`}
+                  </p>
+                  <div className="stat-row">
+                    <div className="stat-tile">
+                      <span className="stat-label">통화 길이</span>
+                      <span className="stat-value">{formatClock(timeline.callSec)}</span>
+                    </div>
+                    <div className="stat-tile">
+                      <span className="stat-label">실제 발화 시간</span>
+                      <span className="stat-value">
+                        {formatClock(timeline.speechSec)}
+                        {timeline.speechRatio != null && ` · ${timeline.speechRatio}%`}
+                      </span>
+                    </div>
+                    <div className="stat-tile">
+                      <span className="stat-label">{SILENCE_MIN_SEC}초 이상 침묵 (횟수 · 최장)</span>
+                      <span className="stat-value">
+                        {timeline.silenceCount}회 · {timeline.longestSilenceSec}초
+                      </span>
+                    </div>
+                    <div className="stat-tile">
+                      <span className="stat-label">발화 속도 (분당 글자)</span>
+                      <span className="stat-value">
+                        {timeline.charsPerMin == null ? '—' : `${timeline.charsPerMin}자`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 합계만 주면 어디를 다시 들어야 할지 알 수 없어 결국 통화 전체를 듣게 된다.
+                      침묵이 시작된 시각을 눌러 그 지점부터 재생한다. */}
+                  {timeline.silences.length > 0 && (
+                    <>
+                      <p className="result-empty-sub">
+                        고객을 기다리게 한 구간 — 시각을 누르면 그 지점부터 들을 수 있습니다.
+                      </p>
+                      <div className="chip-row">
+                        {timeline.silences.map((s) => (
+                          <button
+                            key={s.start}
+                            type="button"
+                            className="preset-chip"
+                            onClick={() => seekTo(s.start, -1)}
+                            title="이 침묵이 시작된 지점부터 재생"
+                          >
+                            {formatClock(s.start)}에서 {s.sec}초
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  <ul className="plain-list">
+                    {timeDiagnosis.map((d) => (
+                      <li key={d.id}>
+                        <strong>
+                          {d.level === 'warn' ? '⚠ ' : d.level === 'ok' ? '✓ ' : 'ℹ '}
+                          {d.label}
+                        </strong>{' '}
+                        — {d.detail}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : (
+                // 계산할 수 없는 것을 0으로 보여주지 않는다 — 왜 못 하는지를 말한다.
+                <ResultNotice
+                  text={
+                    result.demo
+                      ? '예시 전사에는 타임스탬프가 없어 시간 지표(침묵·발화 속도·발화 밀도)는 계산하지 않았습니다. 배포 환경에서 실제 음성을 전사하면 표시됩니다.'
+                      : '이 응답에는 구간 타임스탬프가 없어 시간 지표를 계산하지 않았습니다. 대화 균형은 아래 글자 수 기반 지표로만 볼 수 있습니다.'
+                  }
+                />
+              )}
               {/* 시간이 붙은 구간 — 평문 전사로는 할 수 없던 것들이 여기서 가능해진다 */}
               <SegmentTimeline
                 segments={result?.segments}

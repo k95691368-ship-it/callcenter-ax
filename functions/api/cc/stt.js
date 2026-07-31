@@ -89,9 +89,16 @@ async function runModel(env, modelKey, audioB64) {
     // Whisper는 구간·단어마다 시작·끝 시각을 함께 준다. 예전에는 text만 쓰고 전부 버렸는데,
     // 시간이 사라지면 구간 재생·화자 교정·근거 역추적·침묵 지표가 전부 불가능해진다.
     // 시간 정보가 없는 응답에서는 null을 그대로 둔다 — 0으로 채우면 화면이 거짓을 말한다.
+    // 통화 길이는 "마지막 구간의 끝"이 아니다 — 마지막 발화 뒤의 무음은 전사에 흔적을
+    // 남기지 않아 구간만으로는 영영 보이지 않는다. turbo는 transcription_info.duration으로
+    // 음성 파일의 실제 길이를 함께 준다(공식 출력 스키마에 있는 필드다. base 모델에는 없다).
+    // 이 숫자가 빠지면 발화 밀도(발화 시간 ÷ 통화 길이)가 늘 실제보다 높게 나온다.
+    // 없는 응답에서는 null 그대로 둔다 — 0으로 채우면 화면이 거짓을 말한다.
+    const rawDuration = Number(result?.transcription_info?.duration)
     return {
       text,
       segments: toSegments(result),
+      duration: Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : null,
       model: MODELS[modelKey],
       latency: Date.now() - startedAt,
     }

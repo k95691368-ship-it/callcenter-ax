@@ -202,14 +202,35 @@ export function aggregateThemes(calls) {
 
 // 두 기간을 비교해 "무엇이 늘었는가"를 원인 단위로 돌려준다.
 // 카테고리 급증(vocAnomaly)이 "불만이 늘었다"까지라면, 이건 "속도 저하가 늘었다"까지 간다.
+// 구간을 자르는 쪽은 vocPeriod.splitPeriod가 맡는다 — 여기에 그대로 넣으면 된다.
 export function compareThemes(currentCalls, previousCalls) {
   const now = aggregateThemes(currentCalls)
   const before = aggregateThemes(previousCalls)
   const beforeCount = new Map(before.themes.map((t) => [t.id, t.count]))
-  return now.themes
-    .map((t) => {
-      const prev = beforeCount.get(t.id) || 0
-      return { ...t, previous: prev, delta: t.count - prev, isNew: prev === 0 }
+  const rows = now.themes.map((t) => {
+    const prev = beforeCount.get(t.id) || 0
+    return { ...t, previous: prev, delta: t.count - prev, isNew: prev === 0, isGone: false }
+  })
+
+  // 이번 구간에 0건이 된 원인도 남긴다.
+  // 예전에는 현재 구간의 원인만 훑어서, 지난주에 8건이던 속도 저하가 이번 주에 0건이 되면
+  // 표에서 그냥 사라졌다. 화면에는 아무 변화도 안 보이는데 실제로는 가장 큰 변화였다 —
+  // 조치가 먹혔다는 유일한 증거이기도 하고, 반대로 집계가 끊겼다는 신호이기도 하다.
+  // 근거 문장은 비워 둔다. 이전 구간의 발화를 이번 구간의 근거처럼 보여줄 수는 없다.
+  const nowIds = new Set(now.themes.map((t) => t.id))
+  for (const t of before.themes) {
+    if (nowIds.has(t.id)) continue
+    rows.push({
+      ...t,
+      count: 0,
+      calls: [],
+      evidence: [],
+      previous: t.count,
+      delta: -t.count,
+      isNew: false,
+      isGone: true,
     })
-    .sort((a, b) => b.delta - a.delta || b.count - a.count)
+  }
+
+  return rows.sort((a, b) => b.delta - a.delta || b.count - a.count)
 }
