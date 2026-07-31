@@ -269,7 +269,13 @@ export default function AboutPage() {
             집계에도 존재하지 않습니다{stats.since ? ` · 수집 시작 ${stats.since.slice(0, 10)} (UTC)` : ''}.
           </p>
           <div className="chip-row" aria-label="운영 지표 요약">
-            <span className="cat-badge cat-ship">누적 AI 호출 {stats.summary.total}회</span>
+            {/* 서버가 "누적이라고 말해도 되는가"를 cumulative로 함께 보낸다. 원시 로그는
+                보존 기간이 지나면 지워지므로, 누적 카운터 표가 없는 경로에서는 이 숫자가
+                최근 구간의 합계일 뿐이다. 그 플래그를 버리고 늘 "누적"이라 적으면
+                서버가 굳이 남긴 근거를 화면이 무시하는 셈이 된다. */}
+            <span className="cat-badge cat-ship">
+              {stats.cumulative ? '누적' : `최근 ${stats.raw_retention_days ?? ''}일`} AI 호출 {stats.summary.total}회
+            </span>
             <span className="cat-badge cat-praise">라이브 호출 비율 {stats.summary.liveRatio}%</span>
             {stats.summary.claudeCalls > 0 && (
               <span className="cat-badge cat-refund">Claude Opus 5 경유 {stats.summary.claudeCalls}회</span>

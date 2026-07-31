@@ -38,15 +38,29 @@ export const RESERVE_PER_CALL_USD = 0.06
 //   · 절단·거절 실패는 `fallback-*`로 기록된다 (상한까지 생성한 뒤 실패 — 가장 비싸다)
 // 셋 다 돈이 나간 호출인데 목록에 없어 예산에서 빠졌다.
 //
-// 그래서 "어떤 mode가 유료인가"를 세는 대신 **무료인 것만 제외**한다.
-// 토큰을 기록하는 유일한 경로가 Claude이기 때문이다 — 오픈소스 층은 usage를 null로
-// 돌려주고(ladder), Whisper도 usage를 남기지 않는다. 그래도 나중에 누군가 오픈소스
-// 토큰을 기록하기 시작할 때를 대비해 무료 엔진 표식은 명시적으로 배제해 둔다.
+// 그래서 "어떤 mode가 유료인가"를 세는 대신 **무료인 것만 제외**했다.
+// 그런데 그 방식으로도 네 번째가 빠졌다:
+//   · Claude가 상한까지 생성한 뒤 실패하고 오픈소스가 답하면 `live-oss`로 기록된다.
+//     사용자는 정상 응답을 받고, 이미 나간 Claude 토큰은 'oss'라는 글자 때문에 제외된다.
+//     실측: 절단 1회 $0.441이 집계 $0.000. 10회면 $4.41인데 상한 $3이 발동하지 않는다.
+//
+// mode 문자열은 **무엇이 답했는가**를 말하고, 예산이 알아야 하는 것은 **무엇이 돈을
+// 썼는가**다. 둘은 같지 않다. 그래서 판정 기준을 문자열에서 토큰으로 옮긴다 —
+// 토큰이 기록돼 있으면 유료 호출이 있었던 것이다(오픈소스 층은 usage를 null로 돌려주고
+// Whisper도 usage를 남기지 않으므로, 토큰이 실린 행은 Claude를 거친 행뿐이다).
+// 새 mode가 생겨도 조용히 빠질 수 없다는 것이 이 방식의 요점이다.
 const FREE_ENGINE_RE = /(oss|turbo|base)/
 
+// mode 문자열만 보는 판정 — 화면 표시·통계용으로 남긴다(예산 게이트는 이걸 쓰지 않는다).
 export function isPaidMode(mode) {
   if (typeof mode !== 'string' || !mode) return false
   return !FREE_ENGINE_RE.test(mode)
+}
+
+// 예산 합계에 넣을 행인가 — 토큰이 실려 있으면 돈이 나간 것이다.
+export function isBilledRow(row) {
+  const n = (v) => Number(v) || 0
+  return n(row?.input_tokens) + n(row?.output_tokens) + n(row?.cache_read_tokens) + n(row?.cache_write_tokens) > 0
 }
 
 export function costOf(inputTokens, outputTokens, cacheReadTokens = 0, cacheWriteTokens = 0) {
@@ -82,7 +96,8 @@ export async function checkDailyBudget(env, limitUsd = DAILY_BUDGET_USD, { calls
     const { results } = await queryModeTotals(env)
     let spent = 0
     for (const r of results || []) {
-      if (!isPaidMode(r.mode)) continue
+      // 토큰이 실린 행만 센다 — mode 문자열이 아니라 실제 지출이 기준이다
+      if (!isBilledRow(r)) continue
       spent += costOf(r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens)
     }
     return { ok: spent + reserve <= limitUsd, spent, limit: limitUsd, reserve, available: true, error: false }

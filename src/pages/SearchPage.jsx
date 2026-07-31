@@ -203,6 +203,19 @@ export default function SearchPage() {
                       }`
                     : '키워드 랭킹 (임베딩 폴백)'}
                 </span>
+                {/* 질의 재작성은 검색 결과를 바꾸는 층이다. 서버가 무엇을 덧붙였는지
+                    응답에 실어 보내면서 "블랙박스가 안 되게" 한다고 적어 뒀는데 정작
+                    화면이 읽지 않았다. 오검색이 났을 때 상담사가 원인을 볼 수 있어야 한다 —
+                    '가족'이라는 말을 한 적 없는 질문에 결합 문서가 1위로 뜨는 이유가 이것이다.
+                    재작성이 없었으면 아예 표시하지 않는다(없음·0으로 채우지 않는다). */}
+                {result.query_rewrite?.added?.length > 0 && (
+                  <span className="usage-note">
+                    질의 확장: +{result.query_rewrite.added.join(', ')}
+                    {result.query_rewrite.applied?.length
+                      ? ` (규칙 ${result.query_rewrite.applied.join('/')})`
+                      : ''}
+                  </span>
+                )}
               </div>
 
               <div className="highlight-box rag-answer">

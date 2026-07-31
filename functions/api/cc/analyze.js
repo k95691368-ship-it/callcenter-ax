@@ -2,7 +2,7 @@ import { json, errorJson, readJsonBody, clientKey } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
-import { runLlmLadder } from '../../_lib/ladder.js'
+import { runLlmLadder, billedUsage } from '../../_lib/ladder.js'
 import { logCall, failureMode, fallbackNotice } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { groundedness } from '../../../src/lib/grounding.js'
@@ -212,14 +212,19 @@ export async function onRequestPost(context) {
     // 이탈 위험은 LLM 점수를 규칙 신호가 만든 구간으로 보정한다. LLM은 맥락을 읽지만
     // 점수 스케일이 흔들리고, 규칙은 맥락을 못 읽지만 흔들리지 않는다 — 겹쳐 쓴다.
     const churn = { ...applyChurnBand(result.churn_risk, transcript), reason: result.churn_reason || null }
-    logCall(context, { endpoint: 'analyze', mode: r.engine === 'claude' ? 'live' : 'live-oss', startedAt, usage: r.usage })
+    logCall(context, { endpoint: 'analyze', mode: r.engine === 'claude' ? 'live' : 'live-oss', startedAt, usage: billedUsage(r) })
+    // **서버가 잰 값을 뒤에 둔다.** 모델 출력을 나중에 펼치면 모델이 검증 결과를 덮어쓴다 —
+    // 스키마 밖 키도 tool 응답에 실려 올 수 있고 ensureContract는 필수 필드만 확인하므로,
+    // demo:true·grounding:1·numeric:{unsupported:[]}를 함께 보내면 그대로 나갔다(실측).
+    // 근거율 0.12가 1로, 미확인 수치 1건이 0건으로 바뀌었다. 검증층이 검증 대상에게
+    // 덮어써지면 "지시가 아니라 검증"이라는 이 프로젝트의 전제가 성립하지 않는다.
     return json({
+      ...withDeterministicLayers(result, transcript, churn),
       demo: false,
       usage: r.usage,
       llm_model: r.model,
       grounding,
       numeric,
-      ...withDeterministicLayers(result, transcript, churn),
       ...(numericNotice(numeric) ? { notice: numericNotice(numeric) } : {}),
     })
   } catch (err) {

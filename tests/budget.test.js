@@ -80,13 +80,27 @@ describe('일일 예산 — 회수가 아니라 금액으로 막는다', () => {
     expect(isPaidMode('fallback-refusal')).toBe(true)
   })
 
-  it('무료 엔진 호출은 금액에 더하지 않는다', async () => {
+  it('토큰이 실린 행은 mode와 무관하게 센다 (돈은 mode가 아니라 토큰을 따라간다)', async () => {
+    // 예전에는 mode 문자열로 유료를 갈랐다. 그런데 Claude가 상한까지 생성한 뒤 실패하고
+    // 오픈소스가 답하면 그 행의 mode는 'live-oss'인데 Claude 토큰이 이미 나가 있다 —
+    // 'oss'라는 글자 때문에 통째로 제외돼 실측 $0.441이 $0.000으로 기록됐다.
+    // 무료 경로는 애초에 토큰을 보고하지 않으므로(아래 테스트), 토큰이 있으면 유료다.
     const db = dbWith([
       { mode: 'live', input_tokens: 10_000, output_tokens: 2_000 },
-      { mode: 'live-oss', input_tokens: 900_000, output_tokens: 900_000 },
+      { mode: 'live-oss', input_tokens: 8_000, output_tokens: 16_000 },
     ])
     const b = await checkDailyBudget({ DB: db })
-    expect(b.spent).toBeCloseTo(0.1)
+    expect(b.spent).toBeCloseTo(0.1 + costOf(8_000, 16_000), 3)
+  })
+
+  it('토큰이 없는 행은 세지 않는다 (오픈소스·Whisper가 그렇다)', async () => {
+    const db = dbWith([
+      { mode: 'live-oss', input_tokens: 0, output_tokens: 0 },
+      { mode: 'live-turbo+base', input_tokens: null, output_tokens: null },
+      { mode: 'demo', input_tokens: 0, output_tokens: 0 },
+    ])
+    const b = await checkDailyBudget({ DB: db })
+    expect(b.spent).toBe(0)
     expect(b.ok).toBe(true)
   })
 

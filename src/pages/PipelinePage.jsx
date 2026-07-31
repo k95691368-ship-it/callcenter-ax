@@ -444,7 +444,10 @@ export default function PipelinePage() {
                         a.id,
                         a.id === 'copy-ticket'
                           ? handoff.ticketText
-                          : buildPipelineReport({ stt, lex, dia, analysis, qa, stageErrors, qaSaved })
+                          : // vocSaved를 빠뜨리면 화면은 'VOC 누적 완료', 복사한 문서는
+                            // '미반영'이라고 적는다 — 같은 실행을 두고 두 곳이 반대로 말한다.
+                            // 화면(위 buildHandoff)과 같은 인자를 넘겨야 한다.
+                            buildPipelineReport({ stt, lex, dia, analysis, qa, stageErrors, qaSaved, vocSaved })
                       )
                     }
                   >

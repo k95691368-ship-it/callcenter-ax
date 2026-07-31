@@ -79,14 +79,25 @@ describe('checkDailyBudget — 합산 대상', () => {
     expect(b.spent).toBeCloseTo(2, 6)
   })
 
-  it('오픈소스·Whisper 지출은 더하지 않는다', async () => {
+  it('오픈소스·Whisper 행은 토큰이 없어 더해지지 않는다', async () => {
+    // 이 경로들이 예산에서 빠지는 이유는 mode 이름이 아니라 **토큰을 보고하지 않기**
+    // 때문이다. workersLlm은 {input, model}만 돌려주고 stt는 usage 없이 기록한다.
+    // (그래서 아래 '무료 경로는 usage를 만들지 않는다' 테스트가 이 전제를 지킨다.)
     const rows = [
-      { mode: 'live-oss', input_tokens: 1_000_000, output_tokens: 1_000_000 },
-      { mode: 'live-turbo', input_tokens: 1_000_000, output_tokens: 0 },
-      { mode: 'live-base', input_tokens: 1_000_000, output_tokens: 0 },
+      { mode: 'live-oss', input_tokens: 0, output_tokens: 0 },
+      { mode: 'live-turbo', input_tokens: null, output_tokens: null },
+      { mode: 'live-base', input_tokens: 0, output_tokens: 0 },
     ]
     const b = await checkDailyBudget({ DB: db(rows) }, 100)
     expect(b.spent).toBe(0)
+  })
+
+  it('오픈소스가 답해도 그 앞에서 Claude가 쓴 토큰은 합산한다', async () => {
+    // 절단은 상한까지 생성한 뒤 실패하는 가장 비싼 호출이고, 그때 오픈소스가 답하면
+    // 사용자는 정상 응답을 받는다. 나간 돈이 어디에도 안 남는 것이 이 자리의 위험이었다.
+    const rows = [{ mode: 'live-oss', input_tokens: 8_000, output_tokens: 16_000 }]
+    const b = await checkDailyBudget({ DB: db(rows) }, 100)
+    expect(b.spent).toBeGreaterThan(0.4)
   })
 
   it('게이트 차단·실패로 나간 토큰도 합산한다 (가장 비싼 호출을 놓치지 않는다)', async () => {
@@ -147,5 +158,29 @@ describe('단가 상수', () => {
   it('claude-opus-5 공식 단가와 일치한다', () => {
     expect(INPUT_PRICE * 1_000_000).toBe(5)
     expect(OUTPUT_PRICE * 1_000_000).toBe(25)
+  })
+})
+
+// 예산 판정이 "토큰이 있으면 유료"라는 전제 위에 서 있다.
+// 그 전제가 깨지면(무료 층이 usage를 보고하기 시작하면) 남의 회사 청구서를 우리 상한에
+// 더하게 되므로, 전제 자체를 테스트로 고정한다.
+describe('무료 층은 usage를 만들지 않는다 (예산 판정의 전제)', () => {
+  it('workersLlm은 사용량을 돌려주지 않는다', async () => {
+    const { callWorkersJson } = await import('../functions/_lib/workersLlm.js')
+    const env = { AI: { run: async () => ({ response: '{"ok":true}' }) } }
+    const r = await callWorkersJson(env, { system: 's', user: 'u', maxTokens: 100 })
+    expect(r.usage).toBeUndefined()
+  })
+
+  it('사다리는 오픈소스 응답에 usage를 싣지 않는다 (청구분은 paidUsage로만 나간다)', async () => {
+    const { runLlmLadder, billedUsage } = await import('../functions/_lib/ladder.js')
+    const env = { AI: { run: async () => ({ response: '{"ok":true}' }) } } // 키 없음 = Claude 미시도
+    const r = await runLlmLadder(env, {
+      system: 's', user: 'u', tool: { name: 't', input_schema: { type: 'object', properties: {} } },
+      maxTokens: 100, workersSchema: '{}', workersMaxTokens: 100,
+    })
+    expect(r.engine).toBe('oss')
+    expect(r.usage).toBeNull()
+    expect(billedUsage(r)).toBeNull()
   })
 })

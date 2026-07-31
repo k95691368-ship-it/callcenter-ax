@@ -2,7 +2,7 @@ import { json, errorJson, readJsonBody, clientKey } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
-import { runLlmLadder } from '../../_lib/ladder.js'
+import { runLlmLadder, billedUsage } from '../../_lib/ladder.js'
 import { logCall, failureMode, fallbackNotice } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { preservesOriginal, MAX_DIARIZE_CER } from '../../../src/lib/diarizeGuard.js'
@@ -85,7 +85,7 @@ export async function onRequestPost(context) {
     // 원문 보존 게이트 — LLM이 단어를 바꿨으면(CER>15%) 분리 결과를 버리고 원문을 지킨다
     const guard = preservesOriginal(transcript, r.input.formatted)
     if (!guard.ok) {
-      logCall(context, { endpoint: 'diarize', mode: 'guarded', startedAt, usage: r.usage })
+      logCall(context, { endpoint: 'diarize', mode: 'guarded', startedAt, usage: billedUsage(r) })
       return json({
         demo: true,
         formatted: transcript,
@@ -100,7 +100,7 @@ export async function onRequestPost(context) {
     // — 발화 비율, 연속 발화, 확인 질문, 공감 표현 — 이 있고, 그게 분리의 값어치다.
     // 전부 텍스트만으로 계산되므로 추가 AI 호출이 없다.
     const metrics = computeCallMetrics(r.input.formatted)
-    logCall(context, { endpoint: 'diarize', mode: r.engine === 'claude' ? 'live' : 'live-oss', startedAt, usage: r.usage })
+    logCall(context, { endpoint: 'diarize', mode: r.engine === 'claude' ? 'live' : 'live-oss', startedAt, usage: billedUsage(r) })
     return json({
       demo: false,
       usage: r.usage,

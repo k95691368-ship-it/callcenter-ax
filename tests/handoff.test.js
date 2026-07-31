@@ -270,3 +270,38 @@ describe('buildPipelineReport — 처리 상태가 인수인계 문서에 들어
     expect(r).toContain('⑥ VOC 누적: 미실행')
   })
 })
+
+// 화면과 복사 문서는 같은 실행을 두고 같은 말을 해야 한다.
+//
+// 실제로 갈라진 적이 있다: 화면은 buildHandoff({... qaSaved, vocSaved})로 그리는데
+// 복사 버튼은 buildPipelineReport({... qaSaved})로 vocSaved를 빠뜨려서,
+// 화면에 'VOC 대시보드 반영'이 뜬 실행의 문서에는 '미반영'이 찍혔다.
+// 인자를 손으로 만들어 넘기는 테스트는 이 종류를 영영 못 잡는다 — 호출부가 무엇을
+// 넘기는지가 결함의 위치이기 때문이다. 그래서 화면이 쓰는 인자 묶음을 한 번 만들어
+// 두 함수에 **같이** 넣고, 두 산출물이 같은 사실을 말하는지 본다.
+describe('화면과 복사 문서가 갈라지지 않는다', () => {
+  const RUN = {
+    stt: { text: '상담사: 안녕하세요' },
+    lex: { applied: [], text: '상담사: 안녕하세요' },
+    dia: { formatted: '상담사: 안녕하세요\n고객: 해지하려고요' },
+    analysis: ANALYSIS,
+    qa: QA,
+    stageErrors: {},
+  }
+
+  for (const [label, saved] of [
+    ['둘 다 저장됨', { qaSaved: true, vocSaved: true }],
+    ['둘 다 실패', { qaSaved: false, vocSaved: false }],
+    ['VOC만 실패', { qaSaved: true, vocSaved: false }],
+    ['QA만 실패', { qaSaved: false, vocSaved: true }],
+  ]) {
+    it(`${label}: 기록 상태가 화면과 문서에서 같다`, () => {
+      const args = { ...RUN, ...saved }
+      const screen = buildHandoff(args)
+      const doc = buildPipelineReport(args)
+      // 화면이 '누적됨'이라 하면 문서도 그래야 하고, 아니면 둘 다 아니어야 한다
+      expect(doc.includes('VOC 대시보드에 누적 완료')).toBe(screen.records.voc)
+      expect(doc.includes('코칭 이력에 기록 완료')).toBe(screen.records.qaHistory)
+    })
+  }
+})

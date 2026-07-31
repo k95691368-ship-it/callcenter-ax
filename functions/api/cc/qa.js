@@ -2,7 +2,7 @@ import { json, errorJson, readJsonBody, clientKey } from '../../_lib/http.js'
 import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
-import { runLlmLadder } from '../../_lib/ladder.js'
+import { runLlmLadder, billedUsage } from '../../_lib/ladder.js'
 import { logCall, failureMode, fallbackNotice } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import {
@@ -255,7 +255,7 @@ export async function onRequestPost(context) {
       endpoint: 'qa',
       mode: r.engine === 'claude' ? 'live' : 'live-oss',
       startedAt,
-      usage: r.usage,
+      usage: billedUsage(r),
       findingsCount: findings.length,
     })
     return respond(llm, {

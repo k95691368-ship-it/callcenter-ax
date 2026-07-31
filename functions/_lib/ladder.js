@@ -54,7 +54,7 @@ export async function runLlmLadder(env, { system, user, tool, maxTokens, workers
     if (budget.ok) {
       try {
         const r = await callClaudeTool(env, { system, user, tool, maxTokens, deadlineAt })
-        return { input: r.input, usage: r.usage, model: null, engine: 'claude' }
+        return { input: r.input, usage: r.usage, paidUsage: null, model: null, engine: 'claude' }
       } catch (err) {
         claudeErr = err
       }
@@ -78,7 +78,17 @@ export async function runLlmLadder(env, { system, user, tool, maxTokens, workers
         Math.min(OSS_TIMEOUT_MS, left),
         '오픈소스 LLM 응답이 지연되고 있습니다.'
       )
-      return { input: r.input, usage: null, model: r.model, engine: 'oss' }
+      // Claude가 이미 쓴 토큰을 함께 돌려준다.
+      //
+      // claude.js는 절단·거절 실패에 **일부러** err.usage를 실어 던진다("비용 가드가 가장
+      // 비싼 호출을 못 보는 셈이라"). 그런데 여기서 그것을 버리고 usage:null을 주면,
+      // 그 뜻이 정확히 이 경로에서만 무효가 된다 — 오픈소스가 답을 만들어 사용자는
+      // 정상 응답을 받고, 나간 돈은 아무 데도 남지 않는다.
+      // 실측: 절단 1회 $0.441이 집계 $0.000으로 기록됐다(10회면 $4.41, 상한 $3 미발동).
+      //
+      // 응답 본문에 실을 usage와는 분리한다(oss가 답했는데 Claude 토큰을 보여주면
+      // 사용자가 오해한다). 텔레메트리만 이 값을 쓴다.
+      return { input: r.input, usage: null, paidUsage: claudeErr?.usage ?? null, model: r.model, engine: 'oss' }
     } catch (ossErr) {
       // 두 층이 모두 실패했을 때 사용자에게 보여줄 원인은 위층(Claude)의 것이다.
       // 이 catch가 없으면 아래층 오류가 위층 오류를 덮어써, 무엇이 먼저 무너졌는지 사라진다.
@@ -96,4 +106,11 @@ export async function runLlmLadder(env, { system, user, tool, maxTokens, workers
       ? '시간 내에 AI 응답을 받지 못했습니다. 잠시 후 다시 시도해주세요.'
       : '사용 가능한 AI 엔진이 없습니다.'
   )
+}
+
+// 텔레메트리에 남길 사용량 — 응답 본문용 usage와 다르다.
+// 오픈소스가 답했더라도 그 앞에서 Claude가 태운 토큰이 있으면 그것을 기록해야
+// 예산 합계가 실제 지출과 맞는다.
+export function billedUsage(result) {
+  return result?.usage ?? result?.paidUsage ?? null
 }
