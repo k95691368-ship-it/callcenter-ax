@@ -2,8 +2,6 @@
 // 필수 안내 멘트 체크리스트 40점 + 금지 표현 감점.
 // 서버(functions/api/cc/qa.js)와 프론트가 이 파일을 직접 공유해 기준 불일치를 막는다.
 
-import { groundedness } from './grounding.js'
-
 export const REQUIRED_MENTIONS = [
   {
     id: 'greeting',

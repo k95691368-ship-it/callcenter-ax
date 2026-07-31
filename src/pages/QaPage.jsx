@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
@@ -9,6 +9,7 @@ import { revealElement } from '../components/motion.js'
 import { SAMPLE_CALLS } from '../lib/sampleCalls.js'
 import { MAX_RULE_SCORE, MAX_CUSTOM_MENTIONS } from '../lib/qaRules.js'
 import { usePersistentState } from '../lib/persist.js'
+import { loadQaHistory, saveQaResult, clearQaHistory, summarizeQaHistory } from '../lib/qaHistory.js'
 
 // 서버가 조용히 잘라내는 상한 (functions/api/cc/qa.js의 MAX_CHARS)
 const MAX_TRANSCRIPT_CHARS = 8000
@@ -55,6 +56,11 @@ export default function QaPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
+  // 코칭 이력 — 상담사 라벨은 사용자가 정한 식별자다(이름·사번을 요구하지 않는다).
+  // 개인정보를 받지 않으면서 "누가 반복해서 놓치는가"를 셀 수 있는 최소한의 축이다.
+  const [agentLabel, setAgentLabel] = usePersistentState('cc-qa-agent-label', '')
+  const [history, setHistory] = useState(loadQaHistory)
+  const coaching = useMemo(() => summarizeQaHistory(history), [history])
   const resultRef = useRef(null)
 
   useEffect(() => {
@@ -121,6 +127,10 @@ export default function QaPage() {
         ...(custom.length ? { custom_mentions: custom } : {}),
       })
       setResult(data)
+      // 평가 결과를 브라우저에 누적한다. 통화 한 건의 점수는 코칭에 쓰기 어렵고,
+      // 실제로 필요한 건 "이 상담사가 반복해서 놓치는 것"이다. 그건 이미 받은
+      // 결과만 모으면 계산되므로 LLM을 다시 부르지 않는다. (전사 원문은 저장하지 않는다)
+      setHistory(saveQaResult(data, { label: agentLabel.trim() }))
       requestAnimationFrame(() => revealElement(resultRef.current))
     } catch (err) {
       setError(err.message)
@@ -150,6 +160,16 @@ export default function QaPage() {
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={13} />
           </label>
           <CharCount value={text} max={MAX_TRANSCRIPT_CHARS} />
+          <label className="qa-agent-label">
+            상담사 라벨 (선택) — 코칭 이력을 묶는 축입니다
+            <input
+              type="text"
+              value={agentLabel}
+              maxLength={30}
+              placeholder="예: 상담사 A, 2팀-03 (이름·사번을 넣지 마세요)"
+              onChange={(e) => setAgentLabel(e.target.value)}
+            />
+          </label>
           <div className="batch-meta">
             <button type="button" className="preset-chip" onClick={() => setText(SAMPLE_CALLS[9].transcript)}>
               샘플: 응대 미흡 사례
@@ -310,6 +330,45 @@ export default function QaPage() {
                 )}
               </section>
             </>
+          )}
+
+          {/* 코칭 이력 — 통화 한 건의 점수가 아니라 "반복해서 놓치는 것"을 본다.
+              이미 받은 평가 결과만 모아 계산하므로 LLM을 다시 부르지 않는다. */}
+          {coaching && (
+            <section className="analysis-block qa-history">
+              <h2>
+                코칭 이력 ({coaching.count}건 · 평균 {coaching.avg}점
+                {coaching.estimatedCount > 0 && ` · 추정 ${coaching.estimatedCount}건 포함`})
+              </h2>
+              <ul className="plain-list guide-alerts">
+                {coaching.cards.map((c) => (
+                  <li key={c.id} className={`guide-alert-${c.level === 'ok' ? 'warn' : c.level}`}>
+                    <strong>{c.label}</strong>
+                    <span className="guide-detail">{c.detail}</span>
+                  </li>
+                ))}
+              </ul>
+              {coaching.missedTop.length > 0 && (
+                <p className="result-empty-sub">
+                  누락 상위: {coaching.missedTop.map((m) => `${m.label} ${m.count}회`).join(' · ')}
+                </p>
+              )}
+              <div className="batch-meta">
+                <button
+                  type="button"
+                  className="preset-chip"
+                  onClick={() => {
+                    clearQaHistory()
+                    setHistory([])
+                  }}
+                >
+                  이력 비우기
+                </button>
+              </div>
+              <p className="result-empty-sub">
+                점수와 누락 항목만 이 브라우저에 남습니다 — 통화 전사 원문은 저장하지 않습니다.
+              </p>
+            </section>
           )}
         </div>
       </div>

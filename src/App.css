@@ -2014,3 +2014,88 @@
 .theme-dept-chip b {
   color: var(--ink-900);
 }
+
+/* ===== 통화 중 스크립트 가이드 =====
+   통화 중에 흘깃 보는 화면이므로, 지금 할 일과 경보가 한눈에 갈려야 한다. */
+.guide-progress {
+  height: 8px;
+  margin: 10px 0 4px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.guide-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--blue-600);
+  transition: width 0.2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-progress-fill {
+    transition: none;
+  }
+}
+
+.guide-actions li,
+.guide-alerts li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.guide-actions li.guide-urgent {
+  border-color: var(--blue-600);
+}
+
+.guide-now,
+.guide-level {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--blue-600);
+}
+
+.guide-alert-high .guide-level {
+  background: var(--red-600);
+}
+
+.guide-alert-warn .guide-level {
+  color: #7a3c00;
+  background: #ffe9c9;
+}
+
+.guide-script {
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--line);
+  font-weight: 600;
+}
+
+.guide-detail {
+  color: var(--text-2, #555);
+}
+
+.guide-actions .preset-chip,
+.guide-alerts .preset-chip {
+  align-self: flex-start;
+}
+
+@media (prefers-color-scheme: dark) {
+  .guide-alert-warn .guide-level {
+    color: #ffd9a0;
+    background: #4a3210;
+  }
+}

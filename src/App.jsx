@@ -11,24 +11,36 @@ const QaPage = lazy(() => import('./pages/QaPage.jsx'))
 const VocPage = lazy(() => import('./pages/VocPage.jsx'))
 const SearchPage = lazy(() => import('./pages/SearchPage.jsx'))
 const AssistPage = lazy(() => import('./pages/AssistPage.jsx'))
+const GuidePage = lazy(() => import('./pages/GuidePage.jsx'))
 const AboutPage = lazy(() => import('./pages/AboutPage.jsx'))
 
 function lazyRoute(element) {
   return <Suspense fallback={<p className="page-loading">불러오는 중...</p>}>{element}</Suspense>
 }
 
+// 경로 표 — 라우트·제목·메뉴가 모두 여기서 파생된다.
+//
+// 예전에는 셋이 따로 적혀 있었다. 그래서 /guide는 페이지도 API도 제목도 메뉴 링크도
+// 있는데 **Route만 빠져** 있었고, 상단 메뉴와 푸터의 그 링크를 누르면 404가 나왔다.
+// 기능을 만드는 것과 사용자에게 닿는 것은 다른 일이다. 한 표에서 파생시키면 갈라질 수 없다.
+export const PAGES = [
+  { path: '/pipeline', title: '전체 파이프라인 원클릭 시연', component: PipelinePage },
+  { path: '/stt', title: '녹취 전사 (Whisper STT)', component: SttPage },
+  { path: '/analyze', title: '통화 분석 (분류·요약·감정)', component: AnalyzePage },
+  { path: '/qa', title: '상담 품질 평가 (Auto QA)', component: QaPage },
+  { path: '/voc', title: 'VOC 대시보드', component: VocPage },
+  { path: '/search', title: 'RAG 상담 지식 검색', component: SearchPage },
+  { path: '/assist', title: '실시간 상담 지원 (Agent Assist)', component: AssistPage },
+  { path: '/guide', title: '통화 중 스크립트 가이드', component: GuidePage },
+  { path: '/about', title: '제작기 · 채용공고 매핑', component: AboutPage },
+]
+
 // SPA는 라우트를 옮겨도 index.html의 단일 title이 그대로 남아, 스크린리더가 페이지가
-// 바뀐 사실을 알리지 못한다. 경로가 늘 때 제목도 함께 늘도록 라우트 표 옆에 둔다.
+// 바뀐 사실을 알리지 못한다.
+const SUFFIX = '콜센터 AX 워크벤치'
 const ROUTE_TITLES = {
-  '/': '콜센터 AX 워크벤치 — STT·LLM·RAG·Auto QA 포트폴리오',
-  '/pipeline': '전체 파이프라인 원클릭 시연 · 콜센터 AX 워크벤치',
-  '/stt': '녹취 전사 (Whisper STT) · 콜센터 AX 워크벤치',
-  '/analyze': '통화 분석 (분류·요약·감정) · 콜센터 AX 워크벤치',
-  '/qa': '상담 품질 평가 (Auto QA) · 콜센터 AX 워크벤치',
-  '/voc': 'VOC 대시보드 · 콜센터 AX 워크벤치',
-  '/search': 'RAG 상담 지식 검색 · 콜센터 AX 워크벤치',
-  '/assist': '실시간 상담 지원 (Agent Assist) · 콜센터 AX 워크벤치',
-  '/about': '제작기 · 채용공고 매핑 · 콜센터 AX 워크벤치',
+  '/': `${SUFFIX} — STT·LLM·RAG·Auto QA 포트폴리오`,
+  ...Object.fromEntries(PAGES.map((p) => [p.path, `${p.title} · ${SUFFIX}`])),
 }
 const NOT_FOUND_TITLE = '페이지를 찾을 수 없습니다 · 콜센터 AX 워크벤치'
 
@@ -68,14 +80,9 @@ function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<HubPage />} />
-        <Route path="/pipeline" element={lazyRoute(<PipelinePage />)} />
-        <Route path="/stt" element={lazyRoute(<SttPage />)} />
-        <Route path="/analyze" element={lazyRoute(<AnalyzePage />)} />
-        <Route path="/qa" element={lazyRoute(<QaPage />)} />
-        <Route path="/voc" element={lazyRoute(<VocPage />)} />
-        <Route path="/search" element={lazyRoute(<SearchPage />)} />
-        <Route path="/assist" element={lazyRoute(<AssistPage />)} />
-        <Route path="/about" element={lazyRoute(<AboutPage />)} />
+        {PAGES.map(({ path, component: Page }) => (
+          <Route key={path} path={path} element={lazyRoute(<Page />)} />
+        ))}
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

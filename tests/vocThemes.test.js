@@ -8,6 +8,8 @@ import {
   compareThemes,
 } from '../src/lib/vocThemes.js'
 import { TEAMS, teamName } from '../src/lib/teams.js'
+import { routeTicket } from '../src/lib/ticketDraft.js'
+import { estimateChurn } from '../src/lib/churnRisk.js'
 import { SAMPLE_CALLS } from '../src/lib/sampleCalls.js'
 
 const call = (title, transcript, extra = {}) => ({ id: title, title, transcript, ...extra })
@@ -118,6 +120,40 @@ describe('집계 — 원인·부서·재문의·미분류', () => {
   it('빈 입력에서 터지지 않는다', () => {
     expect(aggregateThemes([]).themes).toEqual([])
     expect(aggregateThemes(null).taggedRate).toBe(0)
+  })
+})
+
+describe('대시보드와 티켓이 같은 부서를 말한다 (두 벌로 갈라지지 않게)', () => {
+  // 예전에는 부서 체계가 두 벌이었다. 같은 통화를 대시보드는 '부가서비스팀'으로 세고
+  // 티켓은 '보상 심의팀'으로 배정했다 — 두 화면이 같은 질문에 다른 답을 하면 둘 다 신뢰를 잃는다.
+  it('내장 샘플 전 건에서 원인의 부서와 티켓 배정이 어긋나지 않는다', () => {
+    for (const c of SAMPLE_CALLS) {
+      const churn = estimateChurn(c.transcript)
+      const route = routeTicket({
+        text: c.transcript,
+        category: c.analysis.category,
+        churnScore: churn.score,
+      })
+      const themeDepts = extractThemes(c).map((t) => t.dept)
+      // 에스컬레이션 우선 규칙(법무·리텐션)은 주제와 무관하게 먼저 가는 것이 설계다
+      const isOverride = [teamName('legal'), teamName('retention')].includes(route.team)
+      expect(isOverride || themeDepts.includes(route.team)).toBe(true)
+    }
+  })
+
+  it('소액결제 차단 요청은 부가서비스팀으로 간다 (환불 한 단어에 끌려가지 않는다)', () => {
+    const t = '고객: 아이 휴대폰에서 게임 결제가 자꾸 돼서요. 소액결제를 막고 싶어요.\n고객: 이미 결제된 건 환불이 되나요?'
+    expect(routeTicket({ text: t, category: '기타' }).team).toBe(teamName('vas'))
+  })
+
+  it('상담사만 언급한 절차는 배정을 바꾸지 못한다', () => {
+    const t = '상담사: 환불은 결제 대행사 절차가 별도로 필요합니다.\n고객: 인터넷이 자꾸 끊겨요'
+    expect(routeTicket({ text: t, category: '불만' }).team).toBe(teamName('network'))
+  })
+
+  it('소송을 언급하면 주제와 무관하게 법무가 먼저 본다', () => {
+    const t = '고객: 요금이 왜 이렇게 나왔죠? 소비자원에 신고하고 소송할 겁니다'
+    expect(routeTicket({ text: t, category: '불만' }).team).toBe(teamName('legal'))
   })
 })
 

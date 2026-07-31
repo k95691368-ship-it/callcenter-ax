@@ -1,7 +1,9 @@
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
 import ErrorBoundary from './ErrorBoundary.jsx'
 
-const MENU = [
+// 메뉴 경로는 App.jsx의 PAGES 표에 있는 것만 쓴다 (tests/routes.test.js가 고정한다).
+// 예전에는 여기에만 있고 Route가 없는 링크가 있어, 메뉴를 누르면 404가 나왔다.
+export const MENU = [
   { to: '/', label: '홈', end: true },
   { to: '/pipeline', label: '파이프라인' },
   { to: '/stt', label: '녹취 전사' },
@@ -10,6 +12,7 @@ const MENU = [
   { to: '/voc', label: 'VOC 대시보드' },
   { to: '/search', label: 'RAG 검색' },
   { to: '/assist', label: '상담 지원 ★' },
+  { to: '/guide', label: '통화 중 가이드 ★' },
   { to: '/about', label: '제작기' },
 ]
 
@@ -53,6 +56,7 @@ export default function Layout() {
             <Link to="/voc">VOC 대시보드</Link>
             <Link to="/search">RAG 상담 지식 검색</Link>
             <Link to="/assist">실시간 상담 지원 (신규 제안)</Link>
+            <Link to="/guide">통화 중 스크립트 가이드 (신규 제안)</Link>
           </div>
           <div className="footer-col">
             <p className="footer-title">이 포트폴리오</p>
