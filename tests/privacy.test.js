@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { clientKey } from '../functions/_lib/http.js'
 import { logCall } from '../functions/_lib/telemetry.js'
+import { readFileSync } from 'node:fs'
 
 // 이 프로젝트의 절대 규칙: 개인정보 미수집, IP·입력 내용 미저장.
 // 규칙은 문서로 적어두는 것만으로는 지켜지지 않는다 — 저장 계층에 무엇이 흘러가는지
@@ -100,5 +101,40 @@ describe('logCall (텔레메트리)', () => {
 
   it('DB 바인딩이 없으면 아무것도 하지 않는다', () => {
     expect(() => logCall({ env: {} }, { endpoint: 'stt', mode: 'demo' })).not.toThrow()
+  })
+})
+
+// ── 전사 텍스트가 서버로 나가기 전에 개인정보를 가렸는가 ──
+//
+// 콜센터 통화에는 본인확인이 반드시 들어간다. 주민번호·카드·연락처가 전사에 그대로 남고,
+// 그 텍스트가 분석·평가·화자분리 API로 나간다. 마스킹이 한 경로에만 있으면 없는 것과 다르지 않다.
+// 소스에서 "postJson으로 전사를 보내는 곳"을 찾아 가린 값을 쓰는지 확인한다.
+describe('전사를 보내는 모든 경로가 마스킹을 거친다', () => {
+  const read = (p) => readFileSync(new URL(`../src/pages/${p}`, import.meta.url), 'utf8')
+
+  const SENDERS = [
+    { file: 'SttPage.jsx', endpoint: '/api/cc/diarize' },
+    { file: 'AnalyzePage.jsx', endpoint: '/api/cc/analyze' },
+    { file: 'AnalyzePage.jsx', endpoint: '/api/cc/analyze-batch' },
+    { file: 'QaPage.jsx', endpoint: '/api/cc/qa' },
+  ]
+
+  for (const { file, endpoint } of SENDERS) {
+    it(`${file} → ${endpoint} 는 원문을 그대로 보내지 않는다`, () => {
+      const src = read(file)
+      expect(src).toContain('maskPii')
+      // 호출 지점 앞뒤에서 가린 값(safe/masked/maskPii)을 쓰는지 확인
+      const at = src.indexOf(`postJson('${endpoint}'`)
+      expect(at).toBeGreaterThan(-1)
+      const window = src.slice(Math.max(0, at - 400), at + 200)
+      expect(window).toMatch(/maskPii|safe\.text|safeParts/)
+    })
+  }
+
+  it('녹취 화면이 다음 단계로 넘기는 텍스트도 가려진 것이다', () => {
+    const src = read('SttPage.jsx')
+    const at = src.indexOf("sessionStorage.setItem('cc-transcript'")
+    expect(at).toBeGreaterThan(-1)
+    expect(src.slice(at, at + 80)).toContain('outbound')
   })
 })
