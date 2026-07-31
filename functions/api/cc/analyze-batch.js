@@ -3,7 +3,7 @@ import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
 import { runLlmLadder } from '../../_lib/ladder.js'
-import { logCall, failureMode } from '../../_lib/telemetry.js'
+import { logCall, failureMode, fallbackNotice } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { demoAnalyze } from './analyze.js'
 import { MAX_BATCH_CALLS, MAX_CALL_CHARS } from '../../../src/lib/batchSplit.js'
@@ -154,6 +154,6 @@ export async function onRequestPost(context) {
     return json({ demo: false, usage: r.usage, llm_model: r.model, calls: withTriage(calls, transcripts) })
   } catch (err) {
     logCall(context, { endpoint: 'analyze-batch', mode: failureMode(err), startedAt, usage: err?.usage })
-    return json({ ...demoAll(), notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})` })
+    return json({ ...demoAll(), notice: fallbackNotice(err, '예시 결과') })
   }
 }

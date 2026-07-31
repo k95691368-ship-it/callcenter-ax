@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
+import { maskPii, maskNotice } from '../lib/piiMask.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
@@ -27,6 +28,8 @@ export default function AssistPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
+  // 이번 요청에서 가린 개인정보 (없으면 표시하지 않는다)
+  const [masked, setMasked] = useState(null)
   const [copiedIdx, setCopiedIdx] = useState(-1)
   // 복사 실패를 좌측 폼의 setError로 보내면 화면 반대편에 떠서, 어느 멘트의 복사가
   // 실패했는지조차 알 수 없다. 실패한 제안 옆에 붙도록 인덱스로 들고 있는다.
@@ -44,7 +47,10 @@ export default function AssistPage() {
     setLoading(true)
     setError('')
     try {
-      const data = await postJson('/api/cc/assist', { dialogue })
+      // 상담사가 붙여넣는 진행 중 대화에도 본인확인 발화가 들어간다 — 가린 뒤 보낸다
+      const safe = maskPii(dialogue)
+      setMasked(safe)
+      const data = await postJson('/api/cc/assist', { dialogue: safe.text })
       setResult(data)
       requestAnimationFrame(() => revealElement(resultRef.current))
     } catch (err) {
@@ -112,6 +118,7 @@ export default function AssistPage() {
           {result && !loading && (
             <>
               <ResultNotice text={result.notice} />
+              {masked?.total > 0 && <ResultNotice text={`🔒 ${maskNotice(masked)}`} />}
               <div className="result-toolbar">
                 {result.demo && <DemoBadge />}
                 <UsageNote usage={result.usage} />

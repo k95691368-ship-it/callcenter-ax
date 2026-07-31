@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
+import { maskPii } from '../lib/piiMask.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
 import GenProgress from '../components/GenProgress.jsx'
@@ -83,9 +84,11 @@ export default function SearchPage() {
     setLoading(true)
     setError('')
     try {
+      // 질문과 '내 문서' 모두 사용자가 입력한 원문이다 — 서버로 나가기 전에 가린다
+      const safeDocs = customDocs.map((d) => ({ ...d, body: maskPii(d.body).text }))
       const data = await postJson('/api/cc/search', {
-        question,
-        ...(customDocs.length ? { custom_docs: customDocs } : {}),
+        question: maskPii(question).text,
+        ...(safeDocs.length ? { custom_docs: safeDocs } : {}),
       })
       setResult(data)
       requestAnimationFrame(() => revealElement(resultRef.current))

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { clientKey } from '../functions/_lib/http.js'
 import { logCall } from '../functions/_lib/telemetry.js'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 // 이 프로젝트의 절대 규칙: 개인정보 미수집, IP·입력 내용 미저장.
 // 규칙은 문서로 적어두는 것만으로는 지켜지지 않는다 — 저장 계층에 무엇이 흘러가는지
@@ -109,14 +109,24 @@ describe('logCall (텔레메트리)', () => {
 // 콜센터 통화에는 본인확인이 반드시 들어간다. 주민번호·카드·연락처가 전사에 그대로 남고,
 // 그 텍스트가 분석·평가·화자분리 API로 나간다. 마스킹이 한 경로에만 있으면 없는 것과 다르지 않다.
 // 소스에서 "postJson으로 전사를 보내는 곳"을 찾아 가린 값을 쓰는지 확인한다.
-describe('전사를 보내는 모든 경로가 마스킹을 거친다', () => {
+describe('사용자 입력이 서버로 나가기 전에 개인정보를 가린다', () => {
   const read = (p) => readFileSync(new URL(`../src/pages/${p}`, import.meta.url), 'utf8')
 
+  // "모든 경로"라고 이름 붙여 놓고 네 화면(파이프라인·상담 지원·통화 중 가이드·내 문서
+  // 검색)을 검사하지 않았다. 그 이름 때문에 마스킹이 전역이라고 믿게 됐고, 실제로는
+  // 그 네 곳이 사용자 입력 원문을 그대로 서버로 보내고 있었다.
+  // 목록에 없는 화면이 생기면 아래 '빠진 화면' 테스트가 잡는다.
   const SENDERS = [
     { file: 'SttPage.jsx', endpoint: '/api/cc/diarize' },
     { file: 'AnalyzePage.jsx', endpoint: '/api/cc/analyze' },
     { file: 'AnalyzePage.jsx', endpoint: '/api/cc/analyze-batch' },
     { file: 'QaPage.jsx', endpoint: '/api/cc/qa' },
+    { file: 'PipelinePage.jsx', endpoint: '/api/cc/diarize' },
+    { file: 'PipelinePage.jsx', endpoint: '/api/cc/analyze' },
+    { file: 'PipelinePage.jsx', endpoint: '/api/cc/qa' },
+    { file: 'AssistPage.jsx', endpoint: '/api/cc/assist' },
+    { file: 'GuidePage.jsx', endpoint: '/api/cc/guide' },
+    { file: 'SearchPage.jsx', endpoint: '/api/cc/search' },
   ]
 
   for (const { file, endpoint } of SENDERS) {
@@ -126,10 +136,30 @@ describe('전사를 보내는 모든 경로가 마스킹을 거친다', () => {
       // 호출 지점 앞뒤에서 가린 값(safe/masked/maskPii)을 쓰는지 확인
       const at = src.indexOf(`postJson('${endpoint}'`)
       expect(at).toBeGreaterThan(-1)
+      // 파이프라인은 전사 직후 한 번 가리고 그 값을 여러 단계로 흘린다 —
+      // 호출 지점 근처만 보면 잡히지 않으므로 '가린 값에서 출발했는가'를 따로 본다.
       const window = src.slice(Math.max(0, at - 400), at + 200)
-      expect(window).toMatch(/maskPii|safe\.text|safeParts/)
+      const maskedAtSource = /const safe = maskPii\(/.test(src) && src.indexOf('maskPii(') < at
+      expect(/maskPii|safe\.text|safeParts/.test(window) || maskedAtSource).toBe(true)
     })
   }
+
+
+  it('사용자 입력을 서버로 보내는 화면 중 마스킹이 없는 곳이 없다', () => {
+    // SENDERS 목록을 손으로 관리하면 새 화면이 조용히 빠진다. 실제 파일을 훑어
+    // "postJson으로 사용자 입력을 보내는데 maskPii가 없는 화면"을 직접 찾는다.
+    const dir = new URL('../src/pages/', import.meta.url)
+    const pages = readdirSync(dir).filter((f) => f.endsWith('.jsx'))
+    const offenders = []
+    for (const f of pages) {
+      const s = readFileSync(new URL(f, dir), 'utf8')
+      // 오디오 업로드(/api/cc/stt)는 음성이라 텍스트 마스킹 대상이 아니다 —
+      // 전사 결과가 돌아온 뒤에 가린다(그 지점은 위 SENDERS가 고정한다).
+      const sendsText = /postJson\('\/api\/cc\/(?!stt')/.test(s)
+      if (sendsText && !s.includes('maskPii')) offenders.push(f)
+    }
+    expect(offenders).toEqual([])
+  })
 
   it('녹취 화면이 다음 단계로 넘기는 텍스트도 가려진 것이다', () => {
     const src = read('SttPage.jsx')

@@ -86,24 +86,44 @@ export function rankByKeyword(question, docs = FAQ_DOCS) {
 // BM25는 같은 낱말이 문서에도 있어야 찾으므로, 문서와 어절이 하나도 겹치지 않는 구어체
 // ("와이프랑 같이 쓰면 싸진다던데")는 여기서 손쓸 방법이 없다. 그래서 랭커를 건드리는 대신
 // 질의를 넓혀서 넣는다 — bm25Rank 자체는 재작성 전후 성적을 비교할 기준선으로 남겨 둔다.
-export function bm25Rank(question, docs = FAQ_DOCS, { k1 = 1.2, b = 0.75 } = {}) {
-  const corpus = docs.map((d) => tokenize(`${d.title} ${d.title} ${d.body}`))
-  const avgdl = corpus.reduce((s, c) => s + c.length, 0) / Math.max(corpus.length, 1) || 1
+// 문서 쪽 계산(토큰화·용어 빈도·문서 빈도·평균 길이·2-gram)은 질의와 무관하다.
+// 그런데 질의마다 통째로 다시 했다. 한 요청이 랭킹과 신뢰도 판정에 두 번 부르므로
+// 그 비용도 두 배였다. 문서 배열은 배포에 고정된 상수(FAQ_DOCS)라 배열 신원으로 캐시한다 —
+// 내 문서가 섞인 요청별 배열은 매번 새 배열이라 자연히 캐시를 비켜간다(예전과 같은 비용).
+const indexCache = new WeakMap()
+
+function corpusIndex(docs) {
+  const hit = indexCache.get(docs)
+  if (hit) return hit
+  const terms = docs.map((d) => tokenize(`${d.title} ${d.title} ${d.body}`))
+  const avgdl = terms.reduce((s, c) => s + c.length, 0) / Math.max(terms.length, 1) || 1
   const df = new Map()
-  for (const c of corpus) for (const t of new Set(c)) df.set(t, (df.get(t) || 0) + 1)
+  const tf = terms.map((list) => {
+    const m = new Map()
+    for (const t of list) m.set(t, (m.get(t) || 0) + 1)
+    for (const t of m.keys()) df.set(t, (df.get(t) || 0) + 1)
+    return m
+  })
+  const grams = docs.map((d) => new Set(bigrams(`${d.title} ${d.body}`)))
+  const index = { terms, tf, df, avgdl, grams }
+  indexCache.set(docs, index)
+  return index
+}
+
+export function bm25Rank(question, docs = FAQ_DOCS, { k1 = 1.2, b = 0.75 } = {}) {
+  const { terms, tf, df, avgdl, grams } = corpusIndex(docs)
 
   const qTokens = expandQuery(question)
   const scored = docs.map((doc, i) => {
-    const terms = corpus[i]
-    const tf = new Map()
-    for (const t of terms) tf.set(t, (tf.get(t) || 0) + 1)
+    const len = terms[i].length
+    const counts = tf[i]
     let score = 0
     for (const t of qTokens) {
-      const f = tf.get(t) || 0
+      const f = counts.get(t) || 0
       if (!f) continue
       const n = df.get(t) || 0
       const idf = Math.log(1 + (docs.length - n + 0.5) / (n + 0.5))
-      score += idf * ((f * (k1 + 1)) / (f + k1 * (1 - b + (b * terms.length) / avgdl)))
+      score += idf * ((f * (k1 + 1)) / (f + k1 * (1 - b + (b * len) / avgdl)))
     }
     return { ...doc, score: Math.round(score * 1000) / 1000 }
   })
@@ -111,10 +131,9 @@ export function bm25Rank(question, docs = FAQ_DOCS, { k1 = 1.2, b = 0.75 } = {})
   if (scored.every((s) => s.score === 0)) {
     const qGrams = new Set(bigrams(question))
     if (qGrams.size > 0) {
-      for (const s of scored) {
-        const docGrams = new Set(bigrams(`${s.title} ${s.body}`))
+      for (const [i, s] of scored.entries()) {
         let hit = 0
-        for (const g of qGrams) if (docGrams.has(g)) hit += 1
+        for (const g of qGrams) if (grams[i].has(g)) hit += 1
         // 2-gram 점수는 어절 매치보다 항상 낮게 둔다 — 이건 '겨우 찾은 것'이라는 표시다
         s.score = Math.round((hit / qGrams.size) * 0.5 * 1000) / 1000
         s.weak = true

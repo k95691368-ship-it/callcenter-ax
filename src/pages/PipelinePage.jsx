@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { postJson } from '../lib/api.js'
+import { maskPii } from '../lib/piiMask.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { OssLlmNote, UsageNote, WorkersAiNote, ResultNotice } from '../components/ResultMeta.jsx'
 import AnalysisLayers from '../components/AnalysisLayers.jsx'
@@ -43,6 +44,8 @@ export default function PipelinePage() {
   const [error, setError] = useState('')
   const [stt, setStt] = useState(null)
   const [lex, setLex] = useState(null)
+  // 전사 직후 가린 개인정보 건수 (화면에 사실대로 표시한다)
+  const [piiHits, setPiiHits] = useState(0)
   const [dia, setDia] = useState(null)
   const [analysis, setAnalysis] = useState(null)
   const [qa, setQa] = useState(null)
@@ -115,7 +118,12 @@ export default function PipelinePage() {
 
       // ② 도메인 보정
       setStage(1)
-      const corrected = applyLexicon(sttRes.text)
+      // 전사 직후 한 번 가린다. 이 화면은 "각 페이지와 같은 파이프라인"이라고 말하는데
+      // 정작 마스킹만 빠져 있었다 — 본인확인 발화가 든 통화를 돌리면 주민번호가
+      // diarize·analyze·qa API와 localStorage 원장으로 그대로 나갔다.
+      const safe = maskPii(sttRes.text)
+      setPiiHits(safe.total)
+      const corrected = applyLexicon(safe.text)
       setLex(corrected)
 
       // ③ 화자 분리 — 실패해도 보정 전사로 다음 단계를 계속한다
@@ -262,6 +270,12 @@ export default function PipelinePage() {
                 </div>
                 <ResultNotice text={stt.notice} />
                 <p className="pipe-text">"{stt.text}"</p>
+                {piiHits > 0 && (
+                  <p className="result-empty-sub">
+                    🔒 개인정보 {piiHits}건을 가린 뒤 다음 단계로 넘겼습니다 — 화자 분리·분석·평가·저장은
+                    모두 가려진 텍스트로 진행됩니다.
+                  </p>
+                )}
               </div>
             )}
 

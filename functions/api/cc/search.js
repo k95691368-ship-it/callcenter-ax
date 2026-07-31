@@ -3,11 +3,12 @@ import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
 import { runLlmLadder } from '../../_lib/ladder.js'
-import { logCall, failureMode } from '../../_lib/telemetry.js'
+import { logCall, failureMode, fallbackNotice } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import {
   FAQ_DOCS,
   bm25Rank,
+  assessRetrieval,
   cosineSim,
   fuseRankings,
   docBlocks,
@@ -42,9 +43,27 @@ const SOURCE_WORD_RE = /(문서|규정|자료|정보|내용|약관|안내)/
 const ABSENCE_RE =
   /((포함|명시|언급|기재|기술|확인|안내)되(어|어서)?\s*있지\s*않|되지\s*않(습니|았|아)|확인할\s*수\s*없|찾을\s*수\s*없|답변(을)?\s*(드릴|할)\s*수\s*없|나와\s*있지\s*않|없습니다|없는\s*내용)/
 
+// 거절 답변인지 — 강등 면제 대상이다.
+//
+// 면제가 스스로 열리던 구멍: 지어낸 내용을 길게 쓴 뒤 끝에 "다만 문서에는 없습니다"
+// 한 줄만 붙여도 면제를 받았다. 그래서 근거율 8~10%짜리 창작이 경고 문구 하나와 함께
+// 정답 자리에 나갔다 — 환각을 막으려고 만든 게이트가 환각의 통로가 된 것이다.
+//
+// 거절은 **답변 전체가 거절이어야** 거절이다. 없다는 말이 뒤에 곁다리로 붙어 있고
+// 앞에 긴 설명이 있다면, 그 설명이 바로 검증해야 할 대상이다.
+// 거절이 앞에 있어야 거절이다. 길이로 재면 안 된다 — 짧은 문장 세 개로 지어낸 답변도
+// 120자면 끝나므로, 길이 기준은 그런 창작을 통째로 면제해 준다.
+export const REFUSAL_LEAD_SENTENCES = 2
+
 export function isRefusalAnswer(answer = '') {
-  const text = String(answer ?? '')
-  return SOURCE_WORD_RE.test(text) && ABSENCE_RE.test(text)
+  const text = String(answer ?? '').trim()
+  if (!SOURCE_WORD_RE.test(text) || !ABSENCE_RE.test(text)) return false
+  // 앞 두 문장 안에 "없다"는 말이 나와야 한다. 뒤에 곁다리로 붙은 한 줄은 면제 사유가 아니다.
+  const lead = text
+    .split(/(?<=[.!?。])\s+/)
+    .slice(0, REFUSAL_LEAD_SENTENCES)
+    .join(' ')
+  return ABSENCE_RE.test(lead)
 }
 
 // 'ok' 그대로 표시 | 'warn' 경고 문구와 함께 표시 | 'reject' 발췌 템플릿으로 강등
@@ -280,6 +299,9 @@ export async function onRequestPost(context) {
     ? { query_rewrite: { added: rewrite.added, applied: rewrite.applied } }
     : {}
 
+  // 어휘 랭킹은 융합·폴백·신뢰도 판정 세 곳이 쓴다. 같은 질의로 세 번 계산할 이유가 없다.
+  const keywordRanked = bm25Rank(rewrite.text, corpus)
+
   // 1단계: 검색 — Vectorize 사전 인덱스 우선 → 실시간 임베딩 폴백, 키워드 랭킹과 RRF 융합
   let results
   let mode = 'hybrid'
@@ -291,7 +313,7 @@ export async function onRequestPost(context) {
       // 공유하게 되어 RRF 융합이 서로를 견제하지 못한다.
       const vector = await vectorRetrieve(env, question, customDocs)
       vectorBackend = vector.backend
-      results = fuseRankings([vector.list, bm25Rank(rewrite.text, corpus)], { topK: TOP_K })
+      results = fuseRankings([vector.list, keywordRanked], { topK: TOP_K })
     } catch {
       results = null
       vectorBackend = null
@@ -300,8 +322,9 @@ export async function onRequestPost(context) {
   if (!results) {
     mode = 'keyword'
     vectorBackend = null
-    results = bm25Rank(rewrite.text, corpus).slice(0, TOP_K)
+    results = keywordRanked.slice(0, TOP_K)
   }
+
   const publicResults = results.map((r) => ({
     id: r.id,
     title: r.title,
@@ -314,6 +337,32 @@ export async function onRequestPost(context) {
     ...(r.keywordScore != null ? { keyword_score: r.keywordScore } : {}),
     ...(r.rrf != null ? { rrf: r.rrf } : {}),
   }))
+
+  // 검색이 자신 없으면 LLM을 부르기 전에 물러난다.
+  //
+  // assessRetrieval은 만들어 놓고 골든셋 평가에서만 썼다 — 실제 검색 경로에 붙지 않아
+  // "근거가 없으면 물러난다"는 주장이 코드에서 성립하지 않았다. 그래서 '점심 메뉴
+  // 추천해줘' 같은 질의에도 규정 문서를 근거처럼 인용한 확신형 답변이 나갔고,
+  // 아낀다고 적어 둔 LLM 호출 비용도 실제로는 아껴지지 않았다.
+  // 어휘 랭킹이 0점이면 임베딩이 무엇을 물어왔든 그 문서는 질문과 겹치는 말이 없다.
+  const confidence = assessRetrieval(keywordRanked)
+  if (confidence.level === 'none') {
+    logCall(context, { endpoint: 'search', mode: `abstain-${mode}`, startedAt })
+    return json({
+      demo: true,
+      mode,
+      embed_model: mode === 'keyword' ? null : EMBED_MODEL,
+      vector_backend: vectorBackend,
+      results: publicResults,
+      guarded: true,
+      abstained: true,
+      answer: '제공된 상담 지식 문서에서 확인되지 않는 질문입니다. 아래 문서 목록에서 관련 내용을 직접 확인해 주세요.',
+      cited_ids: [],
+      grounding: null,
+      notice: `${confidence.reason} 근거가 없어 답변을 생성하지 않았습니다 (LLM 호출 없음).`,
+      ...rewriteMeta,
+    })
+  }
 
   // 2단계: 답변 생성 사다리 — Claude(키 등록 시) → 오픈소스 LLM → 발췌 템플릿
   const canClaude = hasApiKey(env)
@@ -434,7 +483,7 @@ export async function onRequestPost(context) {
       ...rewriteInfo,
       results: publicResults,
       ...t,
-      notice: `일시적인 AI 혼잡으로 발췌 답변을 표시합니다. (${err.message})`,
+      notice: fallbackNotice(err, '발췌 답변을 표시합니다'),
     })
   }
 }

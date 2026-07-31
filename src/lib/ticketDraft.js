@@ -71,13 +71,15 @@ export const DEFAULT_ROUTE = routeOf('general', '1선에서 종결하지 못한 
 // 전사 전체가 아니라 고객 발화만 본다. 상담사는 거의 모든 통화에서 환불·설치·위약금
 // 절차를 안내하므로, 그 발화까지 세면 배정이 상담사의 안내 문구에 끌려간다.
 // 화자 라벨이 없는 전사에서는 전체를 그대로 쓴다(customerText가 그렇게 폴백한다).
-export function routeTicket({ text = '', category = '', churnScore = 0 } = {}) {
+// themes: 호출부가 이미 뽑아 둔 원인이 있으면 넘긴다. 없으면 여기서 뽑는다.
+// (자가 점검은 통화마다 원인을 뽑은 뒤 배정을 물어봐서, 같은 계산을 두 번 하고 있었다)
+export function routeTicket({ text = '', category = '', churnScore = 0, themes = null } = {}) {
   const ctx = { text: customerText(text).text, category, churnScore: Number(churnScore) || 0 }
 
   const override = OVERRIDE_RULES.find((r) => r.match(ctx))
   if (override) return routeOf(override.team, override.reason)
 
-  const [theme] = extractThemes({ transcript: text })
+  const [theme] = themes || extractThemes({ transcript: text })
   if (theme) return routeOf(theme.team, `${theme.label} — 고객이 요구한 내용 기준`)
 
   const rule = ROUTING_RULES.find((r) => r.match(ctx))

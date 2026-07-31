@@ -85,8 +85,10 @@ export function selfCheck(calls) {
   let piiFound = 0
 
   for (const call of list) {
-    if (extractThemes(call).length === 0) untagged.push(call)
-    const route = routeTicket({ text: call.transcript || '', category: call.analysis?.category })
+    // 원인은 한 번만 뽑아 배정 판정에도 넘긴다 — 예전에는 routeTicket이 안에서 다시 뽑았다
+    const themes = extractThemes(call)
+    if (themes.length === 0) untagged.push(call)
+    const route = routeTicket({ text: call.transcript || '', category: call.analysis?.category, themes })
     if (route.team === DEFAULT_ROUTE.team) routedDefault += 1
     if (isRepeatCall(call)) repeats += 1
     piiFound += maskPii(call.transcript || '').total

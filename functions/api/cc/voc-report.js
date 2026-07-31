@@ -3,7 +3,7 @@ import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
 import { runLlmLadder } from '../../_lib/ladder.js'
-import { logCall, failureMode } from '../../_lib/telemetry.js'
+import { logCall, failureMode, fallbackNotice } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { verifyReportNumbers } from '../../../src/lib/reportNumbers.js'
 
@@ -143,6 +143,6 @@ export async function onRequestPost(context) {
     })
   } catch (err) {
     logCall(context, { endpoint: 'voc-report', mode: failureMode(err), startedAt, usage: err?.usage })
-    return json({ ...demoReport(stats), notice: `일시적인 AI 혼잡으로 예시 리포트를 표시합니다. (${err.message})` })
+    return json({ ...demoReport(stats), notice: fallbackNotice(err, '예시 리포트') })
   }
 }

@@ -65,7 +65,7 @@ const LIVE_TABLE = [
   { feature: 'LLM 분석·QA 정성 평가·RAG 답변', mode: '라이브', how: 'Claude Opus 5 → 실패·예산 소진 시 오픈소스 LLM(Llama 3.3 70B) → 규칙 데모로 이어지는 3단 사다리 (현재 엔진은 위 배지 참고)' },
   { feature: '실시간 상담 지원 (Agent Assist)', mode: '라이브', how: 'RAG 근거 검색 + LLM 응대 제안 — 신규 기능 제안·구현' },
   { feature: '화자 분리 (상담사/고객 태깅)', mode: '라이브', how: 'LLM 재구성 + 원문 보존 게이트(CER 15% 초과 시 원문 유지)' },
-  { feature: 'VOC AI 인사이트 리포트', mode: '라이브', how: '집계 수치만 전송 → LLM 리포트 + 숫자 환각 검증(허용 집합 대조)' },
+  { feature: 'VOC AI 인사이트 리포트', mode: '라이브', how: '집계 수치 + 에스컬레이션 통화 제목(마스킹 후, 최대 6건) 전송 → LLM 리포트 + 숫자 환각 검증(허용 집합 대조)' },
   { feature: '일괄 통화 분석', mode: '라이브', how: '통화 최대 5건을 LLM 호출 1회로 묶어 구조화 (결과 개수·순서 검증)' },
 ]
 

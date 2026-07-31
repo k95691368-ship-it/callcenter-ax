@@ -3,7 +3,7 @@ import { checkRateLimit } from '../../_lib/rateLimit.js'
 import { ensureContract, hasApiKey, CALL_SAFETY_RULES } from '../../_lib/claude.js'
 import { hasWorkersAi } from '../../_lib/workersLlm.js'
 import { runLlmLadder } from '../../_lib/ladder.js'
-import { logCall, failureMode } from '../../_lib/telemetry.js'
+import { logCall, failureMode, fallbackNotice } from '../../_lib/telemetry.js'
 import { verifyTurnstile } from '../../_lib/turnstile.js'
 import { groundedness } from '../../../src/lib/grounding.js'
 import { numericSupport, numericNotice } from '../../../src/lib/numericSupport.js'
@@ -223,7 +223,7 @@ export async function onRequestPost(context) {
     logCall(context, { endpoint: 'analyze', mode: failureMode(err), startedAt, usage: err?.usage })
     return json({
       ...withDeterministicLayers(demoAnalyze(transcript), transcript, estimateChurn(transcript)),
-      notice: `일시적인 AI 혼잡으로 예시 결과를 표시합니다. (${err.message})`,
+      notice: fallbackNotice(err, '예시 결과'),
     })
   }
 }

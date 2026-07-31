@@ -63,6 +63,20 @@ export function failureMode(err) {
   return 'fallback'
 }
 
+
+// 폴백 안내 문구 — 원인을 사실대로 말한다.
+//
+// 예전에는 모든 폴백을 "일시적인 AI 혼잡"으로 적었다. 그래서 예산이 소진돼 하루 종일
+// 데모로 나가는 상태를 사용자가 "새로고침하면 낫겠지"로 읽었고, 괄호 안의 원문에는
+// "오픈소스 LLM으로 답합니다"가 붙어 있어 규칙 데모 결과를 LLM 결과로 오인하게 했다.
+// 고칠 수 있는 실패(혼잡·지연)와 정책에 의한 강등(예산)은 사용자가 할 일이 다르다.
+export function fallbackNotice(err, what = '예시 결과') {
+  const detail = String(err?.message ?? '').trim()
+  if (err?.code === 'budget')
+    return `오늘의 유료 AI 예산이 소진되어 ${what}를 표시합니다. 24시간이 지나면 자동으로 복구됩니다.`
+  return `일시적인 AI 혼잡으로 ${what}를 표시합니다.${detail ? ` (${detail})` : ''}`
+}
+
 export function logCall(context, { endpoint, mode, startedAt, usage, findingsCount }) {
   const env = context?.env
   if (!env?.DB) return

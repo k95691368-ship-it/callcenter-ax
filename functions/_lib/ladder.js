@@ -59,7 +59,11 @@ export async function runLlmLadder(env, { system, user, tool, maxTokens, workers
         claudeErr = err
       }
     } else {
-      claudeErr = new Error('오늘의 Claude 예산이 소진되어 오픈소스 LLM으로 답합니다.')
+      // 문구에 "오픈소스로 답한다"를 넣으면, 오픈소스마저 없어 규칙 데모로 내려간 경우에도
+      // 사용자가 LLM이 답했다고 믿는다. 여기서는 사실만 말하고, 무엇으로 답했는지는
+      // 실제로 답한 층이 말한다.
+      claudeErr = new Error('오늘의 유료 AI 예산이 소진되었습니다.')
+      claudeErr.code = 'budget'
     }
   }
   const left = deadlineAt - Date.now()

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { postJson } from '../lib/api.js'
+import { maskPii } from '../lib/piiMask.js'
 import { guideCall } from '../lib/scriptGuide.js'
 import { usePersistentState } from '../lib/persist.js'
 
@@ -50,7 +51,8 @@ export default function GuidePage() {
     setChecking(true)
     setError('')
     try {
-      const d = await postJson('/api/cc/guide', { dialogue })
+      // 통화 중 가이드도 대화 전문을 서버로 보낸다 — 가린 뒤 보낸다
+      const d = await postJson('/api/cc/guide', { dialogue: maskPii(dialogue).text })
       setServerCheck(d)
     } catch (err) {
       setError(err.message)

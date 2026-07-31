@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { SAMPLE_CALLS, CATEGORIES, SENTIMENTS } from '../lib/sampleCalls.js'
 import { loadMyCalls, clearMyCalls, getMyAgent, setMyAgent } from '../lib/myCalls.js'
 import { postJson } from '../lib/api.js'
+import { maskPii } from '../lib/piiMask.js'
 import DemoBadge from '../components/DemoBadge.jsx'
 import { UsageNote, ResultNotice, OssLlmNote } from '../components/ResultMeta.jsx'
 import { NumbersVerifiedBadge } from '../components/VerifyBadge.jsx'
@@ -224,7 +225,9 @@ export default function VocPage() {
         byCategory: agg.byCategory,
         bySentiment: agg.bySentiment,
         escalatedCount: agg.escalated.length,
-        escalatedTitles: agg.escalated.map((c) => c.title),
+        // 제목은 통화 전사의 첫 줄에서 온다 — 본인확인 발화가 첫 줄이면 주민번호·연락처가
+        // 그대로 외부 LLM으로 나간다. 리포트 경로만 마스킹이 빠져 있었다.
+        escalatedTitles: agg.escalated.map((c) => maskPii(c.title).text),
       })
       setReport(data)
     } catch (err) {

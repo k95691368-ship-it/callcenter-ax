@@ -117,7 +117,10 @@ export default function AnalyzePage() {
       // 지금까지 4개 필드만 저장해서, 서버가 계산한 위험도가 저장 단계에서 사라지고
       // 대장에서는 그 열이 항상 빈칸이었다 — 값이 없는 게 아니라 버려지고 있었다.
       saveMyCall({
-        title: text.replace(/^(상담사|고객)\s*[:：]\s*/, '').split('\n')[0],
+        // 제목도 가려진 텍스트에서 뽑는다 — 원문에서 뽑으면 첫 줄에 있던 주민번호가
+        // 그대로 브라우저 원장에 저장되고 VOC 리포트 경로로 다시 서버에 나간다.
+        // 화면이 "가린 텍스트로만 저장된다"고 약속한 바로 그 요청에서 생기던 구멍이다.
+        title: safe.text.replace(/^(상담사|고객)\s*[:：]\s*/, '').split('\n')[0],
         category: data.category,
         sentiment: data.sentiment,
         escalate: data.escalate,
@@ -183,7 +186,8 @@ export default function AnalyzePage() {
       // 일괄 경로도 같다 — 건별로 가린 뒤 보낸다
       const safeParts = parts.map((p) => maskPii(p).text)
       const data = await postJson('/api/cc/analyze-batch', { transcripts: safeParts })
-      setBatchResult({ ...data, inputs: parts })
+      // inputs에 원문을 담아 두면 VOC 저장 제목이 원문에서 뽑혀 마스킹이 무의미해진다
+      setBatchResult({ ...data, inputs: safeParts })
     } catch (err) {
       setBatchError(err.message)
     } finally {

@@ -27,7 +27,7 @@
 | [/stt](https://callcenter-ax.pages.dev/stt) | 오픈소스 STT 적용·**성능 평가·도메인 튜닝** | **Whisper large-v3-turbo** 전사(마이크·파일·샘플) + **장시간 녹취 자동 분할 전사(~27분)** + **CER 측정** + **2종 모델 비교** + 도메인 용어 보정(커스텀 사전 실험 포함) + LLM 화자 분리 |
 | [/analyze](https://callcenter-ax.pages.dev/analyze) | 분류·요약·**의도 분석** | 유형/3줄 요약/감정/의도/조치 구조화 분석 + **에스컬레이션 판단** + **일괄 분석**(통화 5건을 LLM 호출 1회로) |
 | [/qa](https://callcenter-ax.pages.dev/qa) | **Auto QA** | 필수 멘트 체크(40점)·금지 표현 감점 + LLM 정성 평가(60점, **행동 앵커 루브릭 + 일관성 밴드**) + **콜센터별 커스텀 체크리스트** |
-| [/voc](https://callcenter-ax.pages.dev/voc) | **VOC 분석** | 내장 10건 + 직접 분석 건 실시간 누적 집계(SVG 차트) + **AI 인사이트 리포트**(집계 수치만 전송) |
+| [/voc](https://callcenter-ax.pages.dev/voc) | **VOC 분석** | 내장 10건 + 직접 분석 건 실시간 누적 집계(SVG 차트) + **AI 인사이트 리포트**(집계 수치 + 마스킹한 통화 제목 최대 6건 전송, 전문 미전송) |
 | [/search](https://callcenter-ax.pages.dev/search) | **RAG 검색** | **Vectorize 사전 인덱스**(벡터 DB) + 키워드 랭킹 **RRF 융합** 하이브리드 → 근거 문단 강제 답변+인용. **내 문서 실시간 인덱싱** |
 | [/assist](https://callcenter-ax.pages.dev/assist) | **신규 기능 연구·개발** | **실시간 상담 지원(Agent Assist)** — 진행 중 대화를 읽고 규정 RAG 검색 + 다음 응대 멘트 2안 + 에스컬레이션 주의 (직접 제안·구현한 신규 기능) |
 | [/about](https://callcenter-ax.pages.dev/about) | — | 공고 ↔ 구현 매핑표 · 구조도 · 라이브/데모 정직 구분표 · **실측 운영 지표**(D1 텔레메트리 집계: 호출 수·라이브 비율·평균 지연) |
