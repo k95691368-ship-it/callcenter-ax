@@ -347,11 +347,11 @@ export default function AboutPage() {
       )}
 
       <section className="about-section">
-        <h2>{stats && stats.summary.total > 0 ? '6' : '5'}. 제작기 — AI 코딩 에이전트와 이틀간</h2>
+        <h2>{stats && stats.summary.total > 0 ? '6' : '5'}. 제작기</h2>
         <div className="about-process">
           <div className="about-step">
-            <strong>① 공고 분석</strong>
-            <p>공고 원문과 회사의 제품 구성(녹취·상담원평가·음성인식)을 분석해 기능을 공고 문장에 1:1로 매핑한 기획안 작성.</p>
+            <strong>① 도메인 분석</strong>
+            <p>콜센터 솔루션의 제품 구성(녹취·상담원평가·음성인식)을 분석해, 담당업무 한 줄 한 줄을 기능으로 매핑한 기획안 작성.</p>
           </div>
           <div className="about-step">
             <strong>② 검증된 구조 재사용</strong>
@@ -362,7 +362,7 @@ export default function AboutPage() {
             <p>QA 점수 계산·CER·규칙 스캐너·검색 랭킹은 순수 함수로 분리해 vitest 단위 테스트. AI 코딩 에이전트(Claude Code)와 페어로 진행.</p>
           </div>
           <div className="about-step">
-            <strong>④ 첫날 배포</strong>
+            <strong>④ 이른 배포</strong>
             <p>Cloudflare Pages + wrangler 원커맨드 배포. 완벽보다 배포를 앞세우고 개선기획안으로 사이클을 돌립니다.</p>
           </div>
         </div>
