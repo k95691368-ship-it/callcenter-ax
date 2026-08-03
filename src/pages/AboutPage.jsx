@@ -355,7 +355,7 @@ export default function AboutPage() {
           </div>
           <div className="about-step">
             <strong>② 검증된 구조 재사용</strong>
-            <p>전작 포트폴리오(커머스 AX 워크벤치)의 안전장치 — 데모 폴백, 레이트리밋, 응답 계약 검증, 텔레메트리 — 를 그대로 이식.</p>
+            <p>직접 만든 이전 워크벤치에서 검증한 안전장치 — 데모 폴백, 레이트리밋, 응답 계약 검증, 텔레메트리 — 를 그대로 이식.</p>
           </div>
           <div className="about-step">
             <strong>③ 구현·테스트</strong>
