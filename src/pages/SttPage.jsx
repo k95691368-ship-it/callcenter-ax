@@ -163,7 +163,7 @@ export default function SttPage() {
     return computeCer(refScript, altResult.text)
   }, [refScript, altResult, cerTooLong])
 
-  // 우리 콜센터만의 오전사→정정 쌍 — 심사자가 도메인 튜닝을 직접 실험할 수 있다.
+  // 우리 콜센터만의 오전사→정정 쌍 — 평가자가 도메인 튜닝을 직접 실험할 수 있다.
   // 브라우저에만 보관되어 재방문에도 유지된다 (서버 미저장).
   const [customTerms, setCustomTerms] = usePersistentState(
     'cc-stt-lexicon',

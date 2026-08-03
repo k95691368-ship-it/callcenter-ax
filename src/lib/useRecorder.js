@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-// 마이크 녹음 (MediaRecorder) — 심사자가 파일 준비 없이 그 자리에서 시연할 수 있게 한다.
+// 마이크 녹음 (MediaRecorder) — 평가자가 파일 준비 없이 그 자리에서 시연할 수 있게 한다.
 // /stt와 /pipeline이 같은 훅을 공유한다.
 
 // 녹음 상한 — 넘으면 자동 정지한다. 없으면 켜둔 채 잊은 녹음이 서버 입력 한도를

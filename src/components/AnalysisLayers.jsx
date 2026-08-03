@@ -124,7 +124,7 @@ export function TicketDraftBox({ ticket, onError }) {
 // 콜센터에서 틀리면 가장 비싼 것이 그 숫자다 — 위약금 액수, 처리 기한.
 //
 // 통과했을 때도 "몇 개를 대조했는지"를 보여준다. 검증층이 작동할 때만 보이면
-// 심사자는 그런 층이 있는지조차 알 수 없다.
+// 평가자는 그런 층이 있는지조차 알 수 없다.
 export function NumericCheckBox({ numeric }) {
   if (!numeric || !numeric.checked) return null
   const bad = (numeric.unsupported || []).filter((c) => c.critical)

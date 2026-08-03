@@ -45,7 +45,7 @@ ${CALL_SAFETY_RULES}`
 // 예전에는 "강성·부정 감정 통화가 전체의 일부를 차지해 품질 모니터링이 필요합니다"를
 // 집계와 무관한 고정 문장으로 적었다. bySentiment를 인자로 받고도 읽지 않아서,
 // 부정 통화가 한 건도 없는 날에도 있다고 단언했다. 규칙 기반 데모라도 지어내면 안 된다 —
-// 오히려 데모는 키 없이 열어보는 심사자가 가장 먼저 보는 화면이다.
+// 오히려 데모는 키 없이 열어보는 평가자가 가장 먼저 보는 화면이다.
 function negativeFinding(stats) {
   const rows = Array.isArray(stats?.bySentiment) ? stats.bySentiment : []
   const negative = rows

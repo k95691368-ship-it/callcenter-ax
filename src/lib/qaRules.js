@@ -45,7 +45,7 @@ export const MAX_RULE_SCORE = REQUIRED_MENTIONS.reduce((s, m) => s + m.points, 0
 export const MAX_CUSTOM_MENTIONS = 3
 
 // 사용자 입력({label, keywords[]})을 검증·정규화해 커스텀 멘트 규칙으로 만든다.
-// 콜센터마다 다른 QA 기준(예: 가입 상담의 "청약철회 안내")을 심사자가 직접 실험할 수 있다.
+// 콜센터마다 다른 QA 기준(예: 가입 상담의 "청약철회 안내")을 평가자가 직접 실험할 수 있다.
 export function buildCustomMentions(raw) {
   if (!Array.isArray(raw)) return []
   const out = []

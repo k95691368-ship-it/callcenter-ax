@@ -59,11 +59,11 @@ export default function Layout() {
             <Link to="/guide">통화 중 스크립트 가이드 (신규 제안)</Link>
           </div>
           <div className="footer-col">
-            <p className="footer-title">이 포트폴리오</p>
+            <p className="footer-title">이 도구</p>
             <p className="footer-text">
-              콜센터 AX(AI Transformation)를 주제로 만든 취업 포트폴리오입니다.
-              현장의 담당업무 — STT, LLM, NLP, RAG, Auto QA — 를 동작하는 파이프라인으로
-              구현했습니다.
+              콜센터 AX(AI Transformation) 워크벤치입니다. 현장의 업무 — STT, LLM, NLP,
+              RAG, Auto QA — 를 동작하는 파이프라인으로 구현했습니다. LLM에 지시하는 대신
+              출력을 검증합니다.
             </p>
           </div>
           <div className="footer-col">

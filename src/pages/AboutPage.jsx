@@ -95,7 +95,7 @@ export default function AboutPage() {
   return (
     <div className="tool-page about-page">
       <header className="tool-header">
-        <span className="tool-tag">심사자용 제작기</span>
+        <span className="tool-tag">평가자용 제작기</span>
         <h1>담당업무를 그대로 구현한 포트폴리오입니다</h1>
         <p>
           콜센터 AX(AI Transformation)를 주제로 만든 포트폴리오입니다. 현장 담당업무의
