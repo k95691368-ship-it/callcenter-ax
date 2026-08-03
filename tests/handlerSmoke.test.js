@@ -11,7 +11,7 @@ import { readdirSync } from 'node:fs'
 // 배포까지 간다. 그래서 이 파일은 단언을 얇게 두고 **경로를 넓게** 밟는다.
 //
 // 바인딩(D1·AI·Vectorize)이 전부 없는 환경으로 돌린다. 그게 데모 경로이자
-// 심사자가 API 키 없이 열어볼 때의 상태이며, 폴백 코드가 가장 많이 도는 조합이다.
+// 평가자가 API 키 없이 열어볼 때의 상태이며, 폴백 코드가 가장 많이 도는 조합이다.
 
 const API_DIR = new URL('../functions/api/cc/', import.meta.url)
 
