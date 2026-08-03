@@ -61,8 +61,8 @@ export default function Layout() {
           <div className="footer-col">
             <p className="footer-title">이 포트폴리오</p>
             <p className="footer-text">
-              콜센터 솔루션 기업의 "인공지능 융합" 직무(신입)를 위해 만든 취업 포트폴리오입니다.
-              채용공고의 담당업무 — STT, LLM, NLP, RAG, Auto QA — 를 동작하는 파이프라인으로
+              콜센터 AX(AI Transformation)를 주제로 만든 취업 포트폴리오입니다.
+              현장의 담당업무 — STT, LLM, NLP, RAG, Auto QA — 를 동작하는 파이프라인으로
               구현했습니다.
             </p>
           </div>

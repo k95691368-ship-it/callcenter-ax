@@ -48,13 +48,13 @@ const DEMOS = [
     to: '/assist',
     tag: '신규 기능 제안 ★',
     title: '실시간 상담 지원 (Agent Assist)',
-    desc: '공고의 "신규 기능 연구·개발"에 대응해 직접 제안한 기능 — 진행 중인 대화를 읽고 규정을 RAG 검색해 다음 응대 멘트와 에스컬레이션 주의를 실시간 제안합니다.',
+    desc: '"신규 기능 연구·개발" 관점에서 직접 제안한 기능 — 진행 중인 대화를 읽고 규정을 RAG 검색해 다음 응대 멘트와 에스컬레이션 주의를 실시간 제안합니다.',
   },
   {
     to: '/about',
     tag: '심사자용',
     title: '제작기 · 공고 매핑',
-    desc: '채용공고 요건 ↔ 구현 기능 1:1 매핑 표, 시스템 구조도, 그리고 AI 코딩 에이전트로 기획부터 배포까지 완결한 제작 과정.',
+    desc: '담당업무 ↔ 구현 기능 1:1 매핑 표, 시스템 구조도, 그리고 AI 코딩 에이전트로 기획부터 배포까지 완결한 제작 과정.',
   },
 ]
 
@@ -71,8 +71,8 @@ export default function HubPage() {
           <span className="accent">콜센터 AX 워크벤치</span>
         </h1>
         <p className="hub-sub">
-          "STT, LLM, NLP, RAG 기술을 활용한 콜센터 AI 서비스" — 채용공고의 담당업무 문장을
-          다섯 개의 동작하는 화면으로 구현했습니다. 녹취 회사의 제품 파이프라인 순서 그대로입니다.
+          "STT, LLM, NLP, RAG를 활용한 콜센터 AI 서비스" — 한 문장으로 적히는 그 업무를
+          다섯 개의 동작하는 화면으로 구현했습니다. 실제 녹취 솔루션의 파이프라인 순서 그대로입니다.
         </p>
         <div className="hub-cta">
           <Link to="/pipeline" className="btn-primary">
@@ -95,7 +95,7 @@ export default function HubPage() {
       </section>
 
       <section className="hub-pipeline" aria-label="콜센터 AI 파이프라인">
-        <h2>공고의 담당업무가 곧 파이프라인입니다</h2>
+        <h2>현장의 담당업무가 곧 파이프라인입니다</h2>
         <p className="hub-pipeline-sub">
           음성이 텍스트가 되고, 텍스트가 구조화된 분석이 되고, 분석이 쌓여 VOC 인사이트가 됩니다.
           반복은 AI가 대체하고 — 법적 클레임·강성 민원의 판단은 사람에게 남깁니다.
@@ -111,7 +111,7 @@ export default function HubPage() {
       </section>
 
       <section className="hub-demos">
-        <h2>기능 5가지 + 제작기 — 채용공고의 담당업무 그대로</h2>
+        <h2>기능 5가지 + 제작기 — 현장 담당업무 그대로</h2>
         <div className="hub-grid">
           {DEMOS.map((d) => (
             <Link key={d.to} to={d.to} className="hub-card">

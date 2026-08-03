@@ -496,7 +496,7 @@ export default function SttPage() {
         <p>
           상담 녹취 음성을 오픈소스 <strong>Whisper</strong>(Cloudflare Workers AI)로 전사합니다.
           정답 스크립트를 붙여넣으면 <strong>CER(문자 오류율)</strong>로 전사 품질을 측정하고,
-          Whisper <strong>2종 모델을 같은 음성으로 비교</strong>할 수도 있습니다 — 공고의
+          Whisper <strong>2종 모델을 같은 음성으로 비교</strong>할 수도 있습니다 —
           "오픈소스 STT 모델 성능 평가" 업무 그대로입니다. 업로드 음성은 전사 후 저장하지
           않습니다.
         </p>

@@ -35,7 +35,7 @@ const DUTY_MAP = [
   },
   {
     duty: 'STT, LLM, NLP, RAG 기술을 활용한 콜센터 AI 서비스 "신규 기능" 연구·개발',
-    impl: '실시간 상담 지원(Agent Assist) — 진행 중 대화를 읽고 규정 RAG 검색 + 다음 응대 멘트 제안 + 에스컬레이션 주의. 공고 문구에 대응해 직접 제안·구현한 신규 기능',
+    impl: '실시간 상담 지원(Agent Assist) — 진행 중 대화를 읽고 규정 RAG 검색 + 다음 응대 멘트 제안 + 에스컬레이션 주의. 담당업무 문구에서 출발해 직접 제안·구현한 신규 기능',
     to: '/assist',
     label: '상담 지원',
   },
@@ -48,11 +48,11 @@ const DUTY_MAP = [
 ]
 
 const PREFER_MAP = [
-  { req: 'Whisper 등 STT 모델 실습 경험 (우대)', impl: 'Workers AI로 Whisper를 실제 서비스에 적용, CER 평가까지' },
-  { req: 'RAG·Embedding·Vector Search 개념 이해 (우대)', impl: '임베딩 → 벡터 유사도 → 근거 강제 생성의 전 단계를 직접 구현' },
-  { req: 'NLP 프로젝트 경험 (우대)', impl: '분류·요약·감정·의도 분석 + 규칙 기반 텍스트 스캐너(멘트·금지 표현)' },
-  { req: '오픈소스 AI 모델/라이브러리 실습 (자격요건)', impl: 'Whisper·bge-m3 오픈소스 모델을 서버리스로 서빙' },
-  { req: 'AI 서비스 개발에 대한 관심 (자격요건)', impl: '기획 → 구현 → 테스트 → 배포 → 운영 안전장치까지 전 주기 완결' },
+  { req: 'Whisper 등 STT 모델 실습 경험', impl: 'Workers AI로 Whisper를 실제 서비스에 적용, CER 평가까지' },
+  { req: 'RAG·Embedding·Vector Search 개념 이해', impl: '임베딩 → 벡터 유사도 → 근거 강제 생성의 전 단계를 직접 구현' },
+  { req: 'NLP 프로젝트 경험', impl: '분류·요약·감정·의도 분석 + 규칙 기반 텍스트 스캐너(멘트·금지 표현)' },
+  { req: '오픈소스 AI 모델/라이브러리 실습', impl: 'Whisper·bge-m3 오픈소스 모델을 서버리스로 서빙' },
+  { req: 'AI 서비스 개발에 대한 관심', impl: '기획 → 구현 → 테스트 → 배포 → 운영 안전장치까지 전 주기 완결' },
 ]
 
 const LIVE_TABLE = [
@@ -96,21 +96,21 @@ export default function AboutPage() {
     <div className="tool-page about-page">
       <header className="tool-header">
         <span className="tool-tag">심사자용 제작기</span>
-        <h1>이 포트폴리오는 채용공고를 그대로 구현했습니다</h1>
+        <h1>담당업무를 그대로 구현한 포트폴리오입니다</h1>
         <p>
-          콜센터 녹취·CTI 솔루션 기업의 <strong>"인공지능 융합" 파트(신입)</strong> 지원용
-          포트폴리오입니다. 공고 담당업무의 다섯 줄 — STT, 분류·요약, VOC·의도 분석, Auto QA,
-          RAG — 를 각각 동작하는 화면으로 만들었고, 아래 표에서 1:1로 대응을 확인할 수 있습니다.
+          콜센터 AX(AI Transformation)를 주제로 만든 포트폴리오입니다. 현장 담당업무의
+          다섯 줄 — STT, 분류·요약, VOC·의도 분석, Auto QA, RAG — 를 각각 동작하는 화면으로
+          만들었고, 아래 표에서 1:1로 대응을 확인할 수 있습니다.
         </p>
       </header>
 
       <section className="about-section">
-        <h2>1. 공고 담당업무 ↔ 구현 기능</h2>
+        <h2>1. 담당업무 ↔ 구현 기능</h2>
         <div className="req-table-wrap">
           <table className="req-table">
             <thead>
               <tr>
-                <th>공고 담당업무 (원문 요지)</th>
+                <th>담당업무</th>
                 <th>구현</th>
                 <th>바로가기</th>
               </tr>
@@ -133,12 +133,12 @@ export default function AboutPage() {
       </section>
 
       <section className="about-section">
-        <h2>2. 자격요건·우대사항 대응 (신입 기준)</h2>
+        <h2>2. 요건별 증명 (신입 기준)</h2>
         <div className="req-table-wrap">
           <table className="req-table">
             <thead>
               <tr>
-                <th>공고 요건</th>
+                <th>요건</th>
                 <th>이 포트폴리오의 증명</th>
               </tr>
             </thead>

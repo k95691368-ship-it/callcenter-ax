@@ -78,7 +78,7 @@ export default function AssistPage() {
         <span className="tool-tag">신규 기능 제안 · 실시간 상담 지원 (Agent Assist)</span>
         <h1>통화 중, 다음 한마디를 제안합니다</h1>
         <p>
-          공고의 <strong>"콜센터 AI 서비스 신규 기능 연구·개발"</strong>에 대응해 직접 제안한
+          <strong>"콜센터 AI 서비스 신규 기능 연구·개발"</strong> 관점에서 직접 제안한
           기능입니다. 진행 중인 대화를 읽고 — 마지막 고객 발화로 <strong>규정을 RAG 검색</strong>
           하고, 근거에 기반한 <strong>다음 응대 멘트 2안</strong>과{' '}
           <strong>에스컬레이션 주의</strong>를 실시간으로 제안합니다. STT·NLP·RAG·LLM 네 기술이

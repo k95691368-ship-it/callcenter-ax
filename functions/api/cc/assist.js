@@ -14,7 +14,7 @@ import {
   UNTRUSTED_INPUT_RULES,
 } from '../../../src/lib/faqDocs.js'
 
-// 실시간 상담 지원(Agent Assist) — 공고의 "콜센터 AI 서비스 신규 기능 연구·개발"에
+// 실시간 상담 지원(Agent Assist) — "콜센터 AI 서비스 신규 기능 연구·개발" 관점에서
 // 대응해 스스로 제안한 신규 기능. 진행 중인 대화를 읽고 ① 다음 응대 멘트 제안
 // ② RAG 근거 규정 추천 ③ 에스컬레이션 주의를 한 번에 돌려준다.
 // STT(전사)→NLP(맥락)→RAG(근거)→LLM(제안) 네 기술의 결합 지점.

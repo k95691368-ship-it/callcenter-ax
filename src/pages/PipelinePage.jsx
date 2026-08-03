@@ -17,7 +17,7 @@ import { saveQaResult } from '../lib/qaHistory.js'
 import { bufferToB64 } from '../lib/audioChunk.js'
 import { loadPersisted } from '../lib/persist.js'
 
-// 공고의 담당업무 파이프라인(녹취→STT→분석→QA→VOC)을 버튼 하나로 통과시키는 시연.
+// 콜센터 현장의 담당업무 파이프라인(녹취→STT→분석→QA→VOC)을 버튼 하나로 통과시키는 시연.
 // 각 단계는 실제 프로덕션 API를 그대로 호출한다 — 별도의 시연용 가짜 경로가 없다.
 
 // 처리 상태의 심각도를 색으로 잇는다. 새 CSS를 만들지 않고 기존 배지·배너 스타일을
@@ -459,7 +459,7 @@ export default function PipelinePage() {
           </section>
 
           <div className="about-point">
-            방금 실행된 6단계가 곧 채용공고의 담당업무입니다 — STT, 도메인 튜닝, 화자 분리(NLP),
+            방금 실행된 6단계가 곧 콜센터 AX의 담당업무입니다 — STT, 도메인 튜닝, 화자 분리(NLP),
             분류·요약·감정 분석, Auto QA, VOC. 각 단계는 <Link to="/stt">개별 페이지</Link>에서
             직접 입력으로도 실험할 수 있습니다.
           </div>

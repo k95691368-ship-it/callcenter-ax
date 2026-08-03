@@ -32,7 +32,7 @@ export const PAGES = [
   { path: '/search', title: 'RAG 상담 지식 검색', component: SearchPage },
   { path: '/assist', title: '실시간 상담 지원 (Agent Assist)', component: AssistPage },
   { path: '/guide', title: '통화 중 스크립트 가이드', component: GuidePage },
-  { path: '/about', title: '제작기 · 채용공고 매핑', component: AboutPage },
+  { path: '/about', title: '제작기 · 담당업무 매핑', component: AboutPage },
 ]
 
 // SPA는 라우트를 옮겨도 index.html의 단일 title이 그대로 남아, 스크린리더가 페이지가
