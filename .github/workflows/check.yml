@@ -1,0 +1,41 @@
+# 린트·시험·빌드를 여기서 돌린다.
+#
+# 이 저장소를 만드는 컴퓨터는 Windows 11 Home이고 스마트 앱 컨트롤이 켜져
+# 있다. 그게 서명 없는 실행 파일을 막는데 oxlint의 네이티브 바이너리가
+# 서명이 없어서 걸린다(CodeIntegrity 이벤트 3077/3033). 예외 목록이 없고,
+# 끄면 Windows를 다시 깔기 전에는 못 켠다. 되돌릴 수 없는 시스템 설정을
+# 린트 하나 때문에 끄는 것은 값이 안 맞는다.
+#
+# 그래서 리눅스에서 돌린다. 부수 효과로 검사가 기록에 남는다.
+
+name: 검사
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 의존성 설치
+        run: npm ci
+
+      # 셋을 따로 둔다. 하나로 묶으면 먼저 넘어진 것 뒤는 안 돌아서
+      # 어디가 깨졌는지 알려면 두 번 돌려야 한다.
+      - name: 린트
+        run: npm run lint
+
+      - name: 시험
+        run: npm test
+
+      - name: 빌드
+        run: npm run build
