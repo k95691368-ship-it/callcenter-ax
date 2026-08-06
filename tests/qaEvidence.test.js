@@ -10,7 +10,6 @@ import {
   REQUIRED_MENTIONS,
   EVIDENCE_MAX_QUOTE,
   EVIDENCE_UNKNOWN_SPEAKER_NOTE,
-  NEAR_MIN_RATIO,
 } from '../src/lib/qaRules.js'
 import { onRequestPost } from '../functions/api/cc/qa.js'
 
